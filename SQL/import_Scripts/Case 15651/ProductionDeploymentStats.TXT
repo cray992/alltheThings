@@ -1,0 +1,124 @@
+Production Deployment
+---------------------
+Date : 12/05/2006 1:47 PM.
+
+
+Vendor Import ID : 9
+
+Import Employers and Attorneys.
+
+Rows Added in Employers Table (Distinct Ones) .............................. 355
+Rows Added in Employers Table (Duplicate Ones) ............................. 16
+Rows Added in Attorney Table ............................................... 3
+
+
+Data Import Date & Time : Dec  5 2006  2:09PM
+
+Vendor Import ID : 12
+
+Practice ID : 1
+
+Rows Added in Doctor Table for Physicians .................................. 1
+Rows Added in ProviderNumber Table for Providers (License Number) .......... 1
+Rows Added in ProviderNumber Table for Providers (UPIN) .................... 1
+Rows Added in ProviderNumber Table for Providers (NPI) ..................... 0
+Rows Added in Doctor Table for Referring Physicians ........................ 4
+Rows Added in ProviderNumber Table for Ref. Physicians (License Number) .... 0
+Rows Added in ProviderNumber Table for Ref. Physicians (UPIN) .............. 1
+Rows Added in ProviderNumber Table for Ref. Physicians (NPI) ............... 0
+Rows Added in Patient Table ................................................ 244
+Rows Updated in Patient Table for Rendering Provider ID .................... 244
+Rows Updated in Patient Table for Referring Physicians ..................... 6
+Rows Added in InsuranceCompany Table ....................................... 376
+Rows Added in InsuranceCompanyPlan Table ................................... 377
+Rows Added in PatientCase Table ............................................ 228
+Rows Added in PatientCase Table for Default Case ........................... 16
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 189
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 22
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 1
+Rows Updated in Patient Table for Distinct Employer ID ..................... 94
+Rows Updated in Patient Table for Duplicate Employer ID .................... 35
+
+
+Data Import Date & Time : Dec  5 2006  2:16PM
+
+Vendor Import ID : 13
+
+Practice ID : 2
+
+Rows Added in Doctor Table for Physicians .................................. 7
+Rows Added in ProviderNumber Table for Providers (License Number) .......... 2
+Rows Added in ProviderNumber Table for Providers (UPIN) .................... 1
+Rows Added in ProviderNumber Table for Providers (NPI) ..................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 0
+Rows Added in ProviderNumber Table for Ref. Physicians (License Number) .... 0
+Rows Added in ProviderNumber Table for Ref. Physicians (UPIN) .............. 0
+Rows Added in ProviderNumber Table for Ref. Physicians (NPI) ............... 0
+Rows Added in Patient Table ................................................ 233
+Rows Updated in Patient Table for Rendering Provider ID .................... 233
+Rows Updated in Patient Table for Referring Physicians ..................... 0
+Rows Added in InsuranceCompany Table ....................................... 95
+Rows Added in InsuranceCompanyPlan Table ................................... 95
+Rows Added in PatientCase Table ............................................ 231
+Rows Added in PatientCase Table for Default Case ........................... 2
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 230
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 59
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 7
+Rows Updated in Patient Table for Distinct Employer ID ..................... 61
+Rows Updated in Patient Table for Duplicate Employer ID .................... 78
+
+
+Data Import Date & Time : Dec  5 2006  2:21PM
+
+Vendor Import ID : 14
+
+Practice ID : 3
+
+Rows Added in Doctor Table for Physicians .................................. 1
+Rows Added in ProviderNumber Table for Providers (License Number) .......... 1
+Rows Added in ProviderNumber Table for Providers (UPIN) .................... 1
+Rows Added in ProviderNumber Table for Providers (NPI) ..................... 0
+Rows Added in Doctor Table for Referring Physicians ........................ 222
+Rows Added in ProviderNumber Table for Ref. Physicians (License Number) .... 0
+Rows Added in ProviderNumber Table for Ref. Physicians (UPIN) .............. 146
+Rows Added in ProviderNumber Table for Ref. Physicians (NPI) ............... 0
+Rows Added in Patient Table ................................................ 1221
+Rows Updated in Patient Table for Rendering Provider ID .................... 1191
+Rows Updated in Patient Table for Referring Physicians ..................... 904
+Rows Added in InsuranceCompany Table ....................................... 185
+Rows Added in InsuranceCompanyPlan Table ................................... 185
+Rows Added in PatientCase Table ............................................ 1088
+Rows Added in PatientCase Table for Default Case ........................... 133
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 1077
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 200
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 6
+Rows Updated in Patient Table for Distinct Employer ID ..................... 284
+Rows Updated in Patient Table for Duplicate Employer ID .................... 7
+
+
+Data Import Date & Time : Dec  5 2006  2:28PM
+
+Vendor Import ID : 16
+
+Practice ID : 4
+
+Rows Added in Doctor Table for Physicians .................................. 1
+Rows Added in ProviderNumber Table for Providers (License Number) .......... 1
+Rows Added in ProviderNumber Table for Providers (UPIN) .................... 0
+Rows Added in ProviderNumber Table for Providers (NPI) ..................... 0
+Rows Added in Doctor Table for Referring Physicians ........................ 0
+Rows Added in ProviderNumber Table for Ref. Physicians (License Number) .... 0
+Rows Added in ProviderNumber Table for Ref. Physicians (UPIN) .............. 0
+Rows Added in ProviderNumber Table for Ref. Physicians (NPI) ............... 0
+Rows Added in Patient Table ................................................ 40
+Rows Updated in Patient Table for Rendering Provider ID .................... 40
+Rows Updated in Patient Table for Referring Physicians ..................... 0
+Rows Added in InsuranceCompany Table ....................................... 19
+Rows Added in InsuranceCompanyPlan Table ................................... 19
+Rows Added in PatientCase Table ............................................ 39
+Rows Added in PatientCase Table for Default Case ........................... 1
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 38
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 6
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 0
+Rows Updated in Patient Table for Distinct Employer ID ..................... 15
+Rows Updated in Patient Table for Duplicate Employer ID .................... 12

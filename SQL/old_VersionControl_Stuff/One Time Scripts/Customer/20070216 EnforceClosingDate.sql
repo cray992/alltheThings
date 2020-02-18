@@ -1,0 +1,47 @@
+--EXECUTE sp_dropmessage 50050;
+--GO
+--EXECUTE sp_addmessage 50050, -- Message id number.
+--    11, -- Severity.
+--    N'The transaction violates the Closing Period';
+--
+--
+--GO
+--
+--Alter table ClaimTransaction disable trigger all
+--GO
+--alter table ClaimTransaction add overrideClosingDate BIT NOT NULL
+--		CONSTRAINT [DF_ClaimTransaction_overrideClosingDate] DEFAULT ((0))
+--GO
+--Alter table ClaimTransaction enable trigger all
+--GO
+--
+--Alter table Payment disable trigger all
+--GO
+--alter table Payment add overrideClosingDate BIT NOT NULL
+--		CONSTRAINT [DF_Payment_overrideClosingDate] DEFAULT ((0))
+--GO
+--Alter table Payment enable trigger all
+--
+--GO
+--
+--
+--
+--Alter table RefundToPayments disable trigger all
+--GO
+--alter table RefundToPayments add overrideClosingDate BIT NOT NULL
+--		CONSTRAINT [DF_RefundToPayments_overrideClosingDate] DEFAULT ((0))
+--GO
+--Alter table RefundToPayments enable trigger all
+--
+--GO
+--
+--
+--
+--
+--Alter table CapitatedAccountToPayment disable trigger all
+--GO
+--alter table CapitatedAccountToPayment add overrideClosingDate BIT NOT NULL
+--		CONSTRAINT [DF_CapitatedAccountToPayment_overrideClosingDate] DEFAULT ((0))
+--GO
+--Alter table CapitatedAccountToPayment enable trigger all
+

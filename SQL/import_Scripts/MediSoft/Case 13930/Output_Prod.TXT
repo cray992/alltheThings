@@ -1,0 +1,15 @@
+Customer : Med EClaims
+FogBugz Case ID : 13930
+
+Vendor Import ID : 8
+
+Rows Added in Doctor Table for Referring Physicians ........................ 4
+Rows Added in Patient Table ................................................ 412
+Rows Updated in Patient Table for Referring Physicians ..................... 4
+Rows Added in InsuranceCompany Table ....................................... 233
+Rows Added in InsuranceCompanyPlan Table ................................... 224
+Rows Added in PatientCase Table ............................................ 394
+Rows Added in PatientCase Table for Default Case ........................... 18
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 136
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 31
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 1

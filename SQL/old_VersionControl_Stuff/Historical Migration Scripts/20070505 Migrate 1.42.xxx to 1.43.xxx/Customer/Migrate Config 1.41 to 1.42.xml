@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<scripts notify="devteam" purpose="Customer migration for Sprint 17">
+	<files case="20926" notify="phong" />
+	<files case="20807" notify="phong" />
+	<files case="21399" notify="phong" />
+	<files case="18494" notify="phong" />
+	<files case="21306" notify="ilya" />
+	<!-- 
+		add a files node containing a case reference in the order they should be applied.
+		the notify attribute is a comma-separated list of people who should be notified 
+		if something goes wrong with applying those scripts. the scripts-level notify is for 
+		notifying of any general problems (i.e. missed files etc).
+	-->
+</scripts>

@@ -1,0 +1,5 @@
+NPS (Net Promoter Score) Report
+
+1. Run NPS_Query_v2.sql from NPS folder. On DAW Server connected to DAW01
+2. Run Sampling from folder with Anaconda Navigator
+3. Send output to Jimmy

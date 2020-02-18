@@ -1,0 +1,3 @@
+UPDATE PCD SET TypeOfServiceCode=1
+FROM ProcedureCodeDictionary PCD
+WHERE LEFT(ProcedureCode,1)='J' AND CASE WHEN ISNUMERIC(RIGHT(ProcedureCode,4))=1 THEN CAST(RIGHT(ProcedureCode,4) AS INT) END BETWEEN 1835 AND 2916

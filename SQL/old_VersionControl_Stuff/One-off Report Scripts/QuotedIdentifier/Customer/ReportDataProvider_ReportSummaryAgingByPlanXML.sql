@@ -1,0 +1,257 @@
+SET QUOTED_IDENTIFIER ON 
+GO
+SET ANSI_NULLS ON 
+GO
+
+if exists (select * from dbo.sysobjects where id = object_id(N'[dbo].[ReportDataProvider_ReportSummaryAgingByPlanXML]') and OBJECTPROPERTY(id, N'IsProcedure') = 1)
+drop procedure [dbo].[ReportDataProvider_ReportSummaryAgingByPlanXML]
+GO
+
+
+--===========================================================================
+-- REPORT SUMMARY AGING BY PLAN XML
+--===========================================================================
+-- CREATE PROCEDURE dbo.ReportDataProvider_ReportSummaryAgingByPlanXML
+-- 	@practice_id INT
+-- AS
+-- BEGIN
+-- 
+-- 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED
+-- 
+-- 	DECLARE @ref_date DATETIME
+-- 	SET @ref_date = GETDATE()
+-- 
+-- 	--Create a temp table of insurance-bill-claims.
+-- 	SELECT
+-- 		C.ClaimID,
+-- 		(
+-- 				SELECT TOP 1
+-- 					CT.ReferenceID
+-- 				FROM
+-- 					ClaimTransaction CT
+-- 				WHERE
+-- 					CT.ClaimID = C.ClaimID
+-- 					AND CT.ClaimTransactionTypeCode = 'BLL'
+-- 				ORDER BY
+-- 					CT.TransactionDate DESC
+-- 		) AS BillID,
+-- 		CAST(NULL AS INT) AS InsuranceCompanyPlanID,
+-- 		CAST(NULL AS DATETIME) AS OriginalBillDate
+-- 	INTO
+-- 		#ReportBillClaims
+-- 	FROM
+-- 		Claim C
+-- 	WHERE
+-- 		C.PracticeID = @practice_id
+-- 		AND C.ClaimStatusCode <> 'C'
+-- 
+-- 
+-- 	UPDATE
+-- 		#ReportBillClaims
+-- 	SET
+-- 		InsuranceCompanyPlanID = PI.InsuranceCompanyPlanID,
+-- 		OriginalBillDate = T.CreatedDate
+-- 	FROM
+-- 		#ReportBillClaims CTP
+-- 		INNER JOIN 
+-- 		(
+-- 			SELECT	HB.BillID,
+-- 				HB.PayerInsurancePolicyID,
+-- 				BB.CreatedDate,
+-- 				BC.ClaimID
+-- 			FROM	BillBatch BB
+-- 				INNER JOIN Bill_HCFA HB
+-- 				ON	HB.BillBatchID = BB.BillBatchID
+-- 				INNER JOIN BillClaim BC
+-- 				ON	BC.BillID = HB.BillID
+-- 				AND	BC.BillBatchTypeCode = BB.BillBatchTypeCode
+-- 			WHERE	BB.PracticeID = @practice_id
+-- 				AND BB.ConfirmedDate IS NOT NULL
+-- 			UNION ALL
+-- 			SELECT	EB.BillID,
+-- 				EB.PayerInsurancePolicyID,
+-- 				BB.CreatedDate,
+-- 				BC.ClaimID
+-- 			FROM	BillBatch BB
+-- 				INNER JOIN Bill_EDI EB
+-- 				ON	EB.BillBatchID = BB.BillBatchID
+-- 				INNER JOIN BillClaim BC
+-- 				ON	BC.BillID = EB.BillID
+-- 				AND	BC.BillBatchTypeCode = BB.BillBatchTypeCode
+-- 			WHERE	BB.PracticeID = @practice_id
+-- 				AND BB.ConfirmedDate IS NOT NULL
+-- 		) AS T ON T.BillID = CTP.BillID
+-- 		INNER JOIN InsurancePolicy PI
+-- 		ON	PI.InsurancePolicyID = T.PayerInsurancePolicyID
+-- 
+-- 	DELETE FROM #ReportBillClaims WHERE InsuranceCompanyPlanID IS NULL
+-- 
+-- 	--DEBUG
+-- 	--SELECT * FROM @ClaimsToProcess
+-- 
+-- 	--Create a temp table of transactions.
+-- 	SELECT	RBC.InsuranceCompanyPlanID,
+-- 		RBC.ClaimID,
+-- 		RBC.OriginalBillDate,
+-- 		'NEW' AS TypeCode,
+-- 		C.CreatedDate AS TransactionDate,
+-- 		COALESCE(C.ServiceChargeAmount,0) * COALESCE(C.ServiceUnitCount,1) AS Amount,
+-- 		1 AS InsuranceRelatedFlag
+-- 	INTO	#ReportTransactions
+-- 	FROM	#ReportBillClaims RBC
+-- 		INNER JOIN Claim C
+-- 		ON	C.ClaimID = RBC.ClaimID
+-- 	UNION ALL 
+-- 	SELECT	RBC.InsuranceCompanyPlanID,
+-- 		RBC.ClaimID,
+-- 		RBC.OriginalBillDate,
+-- 		'PAY' AS TypeCode,
+-- 		CT.TransactionDate,
+-- 		COALESCE(CT.Amount,0) AS Amount,
+-- 		(
+-- 			CASE
+-- 			WHEN PMT.PaymentID IS NOT NULL THEN 1
+-- 			ELSE 0
+-- 			END) AS InsuranceRelatedFlag
+-- 	FROM	#ReportBillClaims RBC
+-- 		INNER JOIN ClaimTransaction CT
+-- 		ON	CT.ClaimID = RBC.ClaimID
+-- 		AND	CT.ClaimTransactionTypeCode = 'PAY'
+-- 		LEFT OUTER JOIN Payment PMT
+-- 		ON	PMT.PaymentID = CT.ReferenceID
+-- 		AND	PMT.PayerTypeCode = 'I'
+-- 		AND	PMT.PayerID = RBC.InsuranceCompanyPlanID
+-- 		INNER JOIN Claim C ON C.ClaimID = RBC.ClaimID
+-- 	UNION ALL
+-- 	SELECT	RBC.InsuranceCompanyPlanID,
+-- 		RBC.ClaimID,
+-- 		RBC.OriginalBillDate,
+-- 		'ADJ' AS TypeCode,
+-- 		CT.TransactionDate,
+-- 		COALESCE(CT.Amount,0) AS Amount,
+-- 		1 AS InsuranceRelatedFlag
+-- 	FROM	#ReportBillClaims RBC
+-- 		INNER JOIN ClaimTransaction CT
+-- 		ON	CT.ClaimID = RBC.ClaimID
+-- 		AND	CT.ClaimTransactionTypeCode IN ('ADJ','END')
+-- 		INNER JOIN Claim C ON C.ClaimID = RBC.ClaimID
+-- 
+-- 	--Create a temp table of insurance totals.
+-- 	SELECT	RT.InsuranceCompanyPlanID,
+-- 		SUM(
+-- 			CASE
+-- 			WHEN RT.TypeCode = 'NEW' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) <= 30 THEN RT.Amount
+-- 			WHEN RT.TypeCode = 'ADJ' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) <= 30 THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) <= 30 AND RT.TransactionDate <= RT.OriginalBillDate THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) <= 30 AND RT.TransactionDate > RT.OriginalBillDate AND RT.InsuranceRelatedFlag = 1 THEN -1 * RT.Amount
+-- 			ELSE 0
+-- 			END) AS CurrentBalanceAmount,
+-- 		SUM(
+-- 			CASE
+-- 			WHEN RT.TypeCode = 'NEW' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 31 AND 60 THEN RT.Amount
+-- 			WHEN RT.TypeCode = 'ADJ' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 31 AND 60 THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 31 AND 60 AND RT.TransactionDate <= RT.OriginalBillDate THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 31 AND 60 AND RT.TransactionDate > RT.OriginalBillDate AND RT.InsuranceRelatedFlag = 1 THEN -1 * RT.Amount
+-- 			ELSE 0
+-- 			END) AS ThirtyDayBalanceAmount,
+-- 		SUM(
+-- 			CASE
+-- 			WHEN RT.TypeCode = 'NEW' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 61 AND 90 THEN RT.Amount
+-- 			WHEN RT.TypeCode = 'ADJ' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 61 AND 90 THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 61 AND 90 AND RT.TransactionDate <= RT.OriginalBillDate THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 61 AND 90 AND RT.TransactionDate > RT.OriginalBillDate AND RT.InsuranceRelatedFlag = 1 THEN -1 * RT.Amount
+-- 			ELSE 0
+-- 			END) AS SixtyDayBalanceAmount,
+-- 		SUM(
+-- 			CASE
+-- 			WHEN RT.TypeCode = 'NEW' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 91 AND 120 THEN RT.Amount
+-- 			WHEN RT.TypeCode = 'ADJ' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 91 AND 120 THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 91 AND 120 AND RT.TransactionDate <= RT.OriginalBillDate THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) BETWEEN 91 AND 120 AND RT.TransactionDate > RT.OriginalBillDate AND RT.InsuranceRelatedFlag = 1 THEN -1 * RT.Amount
+-- 			ELSE 0
+-- 			END) AS NinetyDayBalanceAmount,
+-- 		SUM(
+-- 			CASE
+-- 			WHEN RT.TypeCode = 'NEW' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) > 120 THEN RT.Amount
+-- 			WHEN RT.TypeCode = 'ADJ' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) > 120 THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) > 120 AND RT.TransactionDate <= RT.OriginalBillDate THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND DATEDIFF(day,RT.OriginalBillDate,@ref_date) > 120 AND RT.TransactionDate > RT.OriginalBillDate AND RT.InsuranceRelatedFlag = 1 THEN -1 * RT.Amount
+-- 			ELSE 0
+-- 			END) AS OneTwentyDayBalanceAmount,
+-- 		SUM(
+-- 			CASE
+-- 			WHEN RT.TypeCode = 'NEW' THEN RT.Amount
+-- 			WHEN RT.TypeCode = 'ADJ' THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND RT.TransactionDate <= RT.OriginalBillDate THEN -1 * RT.Amount
+-- 			WHEN RT.TypeCode = 'PAY' AND RT.TransactionDate > RT.OriginalBillDate AND RT.InsuranceRelatedFlag = 1 THEN -1 * RT.Amount
+-- 			ELSE 0
+-- 			END) AS TotalBalanceAmount
+-- 	INTO	#InsuranceTotals
+-- 	FROM	#ReportTransactions RT
+-- 	GROUP BY RT.InsuranceCompanyPlanID
+-- 				
+-- 		
+-- 	--Retrieve the results.
+-- 	SELECT	1 AS Tag, NULL AS Parent,
+-- 		1 AS [report!1!report-id],
+-- 		GETDATE() AS [report!1!report-date],
+-- 		NULL AS [plan!2!plan-id],
+-- 		NULL AS [plan!2!plan-name],
+-- 		NULL AS [plan!2!phone],
+-- 		NULL AS [plan!2!overpaid-amount],
+-- 		NULL AS [plan!2!current-amount],
+-- 		NULL AS [plan!2!thirty-day-amount],
+-- 		NULL AS [plan!2!sixty-day-amount],
+-- 		NULL AS [plan!2!ninety-day-amount],
+-- 		NULL AS [plan!2!one-hundred-twenty-day-amount],
+-- 		NULL AS [plan!2!total-balance-amount]
+-- 	UNION ALL
+-- 	SELECT	2 AS Tag, 1 AS Parent,
+-- 		NULL AS [report!1!report-id],
+-- 		NULL AS [report!1!report-date],
+-- 		ICP.InsuranceCompanyPlanID AS [plan!2!plan-id],
+-- 		UPPER(ICP.PlanName) AS [plan!2!plan-name],
+-- 		ICP.Phone AS [plan!2!phone],
+-- 		(
+-- 			CASE 
+-- 			WHEN IT.TotalBalanceAmount < 0 THEN -1 * IT.TotalBalanceAmount
+-- 			ELSE 0
+-- 			END)
+-- 			AS [plan!2!overpaid-amount],
+-- 		COALESCE(IT.CurrentBalanceAmount,0)
+-- 			AS [plan!2!current-amount],
+-- 		COALESCE(IT.ThirtyDayBalanceAmount,0)
+-- 			AS [plan!2!thirty-day-amount],
+-- 		COALESCE(IT.SixtyDayBalanceAmount,0)
+-- 			AS [plan!2!sixty-day-amount],
+-- 		COALESCE(IT.NinetyDayBalanceAmount,0)
+-- 			AS [plan!2!ninety-day-amount],
+-- 		COALESCE(IT.OneTwentyDayBalanceAmount,0)
+-- 			AS [plan!2!one-hundred-twenty-day-amount],
+-- 		COALESCE(IT.TotalBalanceAmount,0)
+-- 			AS [plan!2!total-balance-amount]
+-- 	FROM	InsuranceCompanyPlan ICP
+-- 		INNER JOIN #InsuranceTotals IT
+-- 		ON	IT.InsuranceCompanyPlanID = ICP.InsuranceCompanyPlanID
+-- 	WHERE	0 <> COALESCE(IT.TotalBalanceAmount,0)
+-- 	ORDER BY [plan!2!plan-id]
+-- 	FOR XML EXPLICIT
+-- 
+-- 	--DEBUG
+-- 	--SELECT SUM(		COALESCE(IT.TotalBalanceAmount,0)) FROM #InsuranceTotals IT
+-- 	--SELECT COUNT(ClaimID) FROM #ReportBillClaims
+-- 
+-- 	DROP TABLE #ReportTransactions
+-- 	DROP TABLE #ReportBillClaims
+-- 	DROP TABLE #InsuranceTotals 
+-- 
+-- 	SET TRANSACTION ISOLATION LEVEL READ COMMITTED
+-- 
+-- END
+
+GO
+SET QUOTED_IDENTIFIER ON 
+GO
+SET ANSI_NULLS ON 
+GO
+

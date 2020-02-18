@@ -1,0 +1,128 @@
+Vendor Import ID : 59
+
+Rows Added in Patient Table ................................................ 1212
+Rows Added in Doctor Table for Referring Physician ......................... 1
+Rows Updated in Patient Table for Referring Physician ...................... 25
+Rows Added in InsuranceCompany Table ....................................... 18
+Rows Added in InsuranceCompanyPlan Table ................................... 19
+Rows Added in PatientCase Table ............................................ 1212
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 386
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 87
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 2
+Rows Updated in InsurancePolicy Table for Holder Primary Insurance ......... 17
+Rows Updated in InsurancePolicy Table for Holder Secondary Insurance ....... 5
+
+Vendor Import ID : 6
+
+Rows Added in Patient Table ................................................ 1212
+Rows Added in Doctor Table for Referring Physician ......................... 1
+Rows Updated in Patient Table for Referring Physician ...................... 25
+Rows Added in InsuranceCompany Table ....................................... 29
+Rows Added in InsuranceCompanyPlan Table ................................... 64
+Rows Added in PatientCase Table ............................................ 1212
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 386
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 87
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 2
+Rows Updated in InsurancePolicy Table for Holder Primary Insurance ......... 17
+Rows Updated in InsurancePolicy Table for Holder Secondary Insurance ....... 5
+
+
+
+Vendor Import ID : 8
+
+Rows Added in Patient Table ................................................ 1212
+Rows Added in Doctor Table for Referring Physician ......................... 1
+Rows Updated in Patient Table for Referring Physician ...................... 25
+Rows Added in InsuranceCompany Table ....................................... 29
+Rows Added in InsuranceCompanyPlan Table ................................... 110
+Rows Added in PatientCase Table ............................................ 1212
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 386
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 87
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 2
+Rows Updated in InsurancePolicy Table for Holder Primary Insurance ......... 17
+Rows Updated in InsurancePolicy Table for Holder Secondary Insurance ....... 5
+Rows Added in Employer Table ............................................... 3
+Rows Updated in Patient Table for Employer ID .............................. 3
+
+
+Vendor Import ID : 9
+
+Rows Added in Patient Table ................................................ 1212
+Rows Added in Doctor Table for Referring Physician ......................... 1
+Rows Updated in Patient Table for Referring Physician ...................... 25
+Rows Added in InsuranceCompany Table ....................................... 29
+Rows Added in InsuranceCompanyPlan Table ................................... 110
+Rows Added in PatientCase Table ............................................ 1212
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 386
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 87
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 2
+Rows Updated in InsurancePolicy Table for Holder Primary Insurance ......... 17
+Rows Updated in InsurancePolicy Table for Holder Secondary Insurance ....... 5
+Rows Added in Employer Table ............................................... 3
+Rows Updated in Patient Table for Employer ID .............................. 3
+New Contract ID ............................................................ 2
+
+Rows Added in ContractFeeSchedule Table .................................... 30
+
+
+
+Vendor Import ID : 10
+
+Rows Added in Patient Table ................................................ 1212
+Rows Added in Doctor Table for Referring Physician ......................... 1
+Rows Updated in Patient Table for Referring Physician ...................... 25
+Rows Added in InsuranceCompany Table ....................................... 29
+Rows Added in InsuranceCompanyPlan Table ................................... 110
+Rows Added in PatientCase Table ............................................ 1212
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 386
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 87
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 2
+Rows Updated in InsurancePolicy Table for Holder Primary Insurance ......... 17
+Rows Updated in InsurancePolicy Table for Holder Secondary Insurance ....... 5
+Rows Added in Employer Table ............................................... 3
+Rows Updated in Patient Table for Employer ID .............................. 3
+New Contract ID ............................................................ 2
+
+Rows Added in ContractFeeSchedule Table .................................... 29
+
+
+
+Vendor Import ID : 11
+
+Rows Added in Patient Table ................................................ 1212
+Rows Added in Doctor Table for Referring Physician ......................... 1
+Rows Updated in Patient Table for Referring Physician ...................... 25
+Rows Added in InsuranceCompany Table ....................................... 29
+Rows Added in InsuranceCompanyPlan Table ................................... 110
+Rows Added in PatientCase Table ............................................ 1212
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 386
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 87
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 2
+Rows Updated in InsurancePolicy Table for Holder Primary Insurance ......... 17
+Rows Updated in InsurancePolicy Table for Holder Secondary Insurance ....... 5
+Rows Added in Employer Table ............................................... 3
+Rows Updated in Patient Table for Employer ID .............................. 3
+New Contract ID ............................................................ 2
+Rows Added in ContractFeeSchedule Table .................................... 29
+
+
+11/27/2006 - Production
+----------   ----------
+
+Vendor Import ID : 1
+
+Rows Added in Patient Table ................................................ 1212
+Rows Updated in Patient Table for Referring Physician ...................... 25
+Rows Added in InsuranceCompany Table ....................................... 18
+Rows Added in InsuranceCompanyPlan Table ................................... 19
+Rows Added in PatientCase Table ............................................ 1274
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 386
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 87
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 2
+Rows Updated in InsurancePolicy Table for Holder Primary Insurance ......... 17
+Rows Updated in InsurancePolicy Table for Holder Secondary Insurance ....... 5
+Rows Added in Employer Table ............................................... 3
+Rows Updated in Patient Table for Employer ID .............................. 3
+New Contract ID ............................................................ 4
+Rows Added in ContractFeeSchedule Table .................................... 29
+

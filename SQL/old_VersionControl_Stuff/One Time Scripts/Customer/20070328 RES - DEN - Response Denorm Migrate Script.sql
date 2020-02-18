@@ -1,0 +1,262 @@
+--
+--CREATE TABLE #PC_NoCTs(PaymentID INT, PaymentClaimID INT, ClaimID INT, PayerTypeCode CHAR(1), Status BIT, StatusPostingDate DATETIME)
+--INSERT INTO #PC_NoCTs(PaymentID, PaymentClaimID, ClaimID, PayerTypeCode)
+--SELECT P.PaymentID, PC.PaymentClaimID, PC.ClaimID, P.PayerTypeCode
+--FROM Payment P INNER JOIN PaymentClaim PC
+--ON P.PaymentID=PC.PaymentID
+--LEFT JOIN ClaimTransaction CT
+--ON PC.PaymentID=CT.PaymentID AND PC.ClaimID=CT.ClaimID
+--LEFT JOIN VoidedClaims VC
+--ON PC.ClaimID=VC.ClaimID
+--WHERE CT.ClaimID IS NULL AND VC.ClaimID IS NULL
+--
+--UPDATE NCT SET Status=CASE WHEN ClaimStatusCode='C' THEN 0 ELSE 1 END
+--FROM #PC_NoCTs NCT INNER JOIN Claim C
+--ON NCT.ClaimID=C.ClaimID
+--
+--UPDATE NCT SET StatusPostingDate=PostingDate
+--FROM #PC_NoCts NCT INNER JOIN ClaimTransaction CT
+--ON NCT.ClaimID=CT.ClaimID AND CT.ClaimTransactionTypeCode='END'
+--WHERE NCT.Status=0
+--
+--CREATE TABLE #MissingRES(PracticeID INT, ClaimID INT, PaymentID INT, PaymentClaimID INT, InsurancePolicyID INT, PostingDate DATETIME)
+--INSERT INTO #MissingRES(PracticeID, ClaimID, PaymentID, PaymentClaimID, InsurancePolicyID)
+--SELECT PC.PracticeID, NCT.ClaimID, NCT.PaymentID, PC.PaymentClaimID, EOBXml.value('(/eob/insurancePolicyID)[1]','INT')
+--FROM PaymentClaim PC INNER JOIN #PC_NoCTs NCT
+--ON PC.PaymentID=NCT.PaymentID AND PC.PaymentClaimID=NCT.PaymentClaimID
+--INNER JOIN Payment P
+--ON PC.PracticeID=P.PracticeID AND PC.PaymentID=P.PaymentID
+--WHERE CASE WHEN NCT.Status=0 AND NCT.StatusPostingDate<=P.PostingDate THEN 1 ELSE 0 END=0 
+--AND EOBXml.exist('eob/items/item[@type!="Denial"]')=1
+--
+--CREATE TABLE #Payments(PaymentID INT, PayerID INT, PostingDate DATETIME)
+--INSERT INTO #Payments(PaymentID, PayerID, PostingDate)
+--SELECT DISTINCT MR.PaymentID, P.PayerID, P.PostingDate
+--FROM #MissingRES MR INNER JOIN Payment P
+--ON MR.PaymentID=P.PaymentID
+--
+--CREATE TABLE #PaymentCTPostingDates(RID INT IDENTITY(1,1), PaymentID INT, StartID INT, EndID INT, PostingDate DATETIME)
+--INSERT INTO #PaymentCTPostingDates(PaymentID, PostingDate, StartID)
+--SELECT P.PaymentID, CT.PostingDate, MIN(PaymentClaimID) StartID
+--FROM #Payments P INNER JOIN PaymentClaim PC
+--ON P.PaymentID=PC.PaymentID
+--INNER JOIN ClaimTransaction CT
+--ON PC.PaymentID=CT.PaymentID AND PC.ClaimID=CT.ClaimID
+--GROUP BY P.PaymentID, CT.PostingDate
+--ORDER BY P.PaymentID, CT.PostingDate
+--
+--CREATE TABLE #CTPostingDate_XFR(RID INT, EndID INT)
+--INSERT INTO #CTPostingDate_XFR(RID, EndID)
+--SELECT PD1.RID, PD2.StartID EndID
+--FROM #PaymentCTPostingDates PD1 INNER JOIN #PaymentCTPostingDates PD2
+--ON PD1.PaymentID=PD2.PaymentID AND PD1.RID+1=PD2.RID
+--
+--UPDATE PD SET EndID=CTP.EndID
+--FROM #PaymentCTPostingDates PD INNER JOIN #CTPostingDate_XFR CTP
+--ON PD.RID=CTP.RID
+--
+--UPDATE MR SET PostingDate=PD.PostingDate
+--FROM #PaymentCTPostingDates PD INNER JOIN #MissingRES MR
+--ON MR.PaymentID=PD.PaymentID AND MR.PaymentClaimID>=PD.StartID AND MR.PaymentClaimID<=PD.EndID
+--OR MR.PaymentID=PD.PaymentID AND PD.EndID IS NULL AND MR.PaymentClaimID>=PD.StartID
+--
+--CREATE TABLE #Claim_Dates(ClaimID INT, PostingDate DATETIME)
+--
+----Insert first BLL date
+--INSERT INTO #Claim_Dates(ClaimID, PostingDate)
+--SELECT CAB.ClaimID, MIN(CAB.PostingDate) PostingDate
+--FROM #MissingRES MR INNER JOIN ClaimAccounting_Assignments CAA
+--ON MR.PracticeID=CAA.PracticeID AND MR.ClaimID=CAA.ClaimID AND MR.InsurancePolicyID=CAA.InsurancePolicyID
+--INNER JOIN ClaimAccounting_Billings CAB
+--ON CAA.PracticeID=CAB.PracticeID AND CAA.ClaimID=CAB.ClaimID
+--AND (CAB.ClaimTransactionID BETWEEN CAA.ClaimTransactionID AND CAA.EndClaimTransactionID
+--	 OR CAB.ClaimTransactionID>CAA.ClaimTransactionID AND CAA.EndClaimTransactionID IS NULL)
+--WHERE MR.PostingDate IS NULL
+--GROUP BY CAB.ClaimID
+--
+----Insert first ASN for those claims where a first BLL date was not found
+--INSERT INTO #Claim_Dates(ClaimID, PostingDate)
+--SELECT CAA.ClaimID, MIN(CAA.PostingDate) PostingDate
+--FROM #MissingRES MR LEFT JOIN #Claim_Dates CD
+--ON MR.ClaimID=CD.ClaimID
+--INNER JOIN ClaimAccounting_Assignments CAA
+--ON CAA.PracticeID=MR.PracticeID AND MR.ClaimID=CAA.ClaimID
+--WHERE CD.ClaimID IS NULL AND MR.PostingDate IS NULL
+--GROUP BY CAA.ClaimID
+--
+--CREATE TABLE #CTMaxPostDate(PaymentID INT, CTMax DATETIME)
+--INSERT INTO #CTMaxPOstDate(PaymentID, CTMax)
+--SELECT MR.PaymentID, MAX(CD.PostingDate) CTMax
+--FROM #MissingRES MR INNER JOIN #Claim_Dates CD
+--ON MR.ClaimID=CD.ClaimID
+--WHERE MR.PostingDate IS NULL
+--GROUP BY MR.PaymentID
+--
+--CREATE TABLE #NewPaymentPostDate(PaymentID INT, PostingDate DATETIME)
+--INSERT INTO #NewPaymentPostDate(PaymentID, PostingDate)
+--SELECT P.PaymentID, MAX(CASE WHEN CD.CTMax>P.PostingDate THEN CD.CTMax ELSE P.PostingDate END) PostingDate
+--FROM #Payments P INNER JOIN #CTMaxPostDate CD
+--ON P.PaymentID=CD.PaymentID
+--GROUP BY P.PaymentID
+--
+--UPDATE MR SET PostingDate=NPP.PostingDate
+--FROM #MissingRES MR INNER JOIN #NewPaymentPostDate NPP
+--ON MR.PaymentID=NPP.PaymentID
+--WHERE MR.PostingDate IS NULL
+--
+--ALTER TABLE ClaimTransaction DISABLE TRIGGER ALL
+--
+--INSERT INTO ClaimTransaction(PracticeID, ClaimID, PaymentID, PatientID, Claim_ProviderID, CreatedUserID, ModifiedUserID, 
+--							 ClaimTransactionTypeCode, PostingDate)
+--SELECT MR.PracticeID, MR.ClaimID, MR.PaymentID, PC.PatientID, E.DoctorID Claim_ProviderID,
+--0 CreatedUserID, 0 ModifiedUserID, 'RES' ClaimTransactionTypeCode, CAST(CONVERT(CHAR(10),MR.PostingDate,110) AS DATETIME) PostingDate
+--FROM #MissingRES MR INNER JOIN PaymentClaim PC
+--ON MR.PaymentClaimID=PC.PaymentClaimID
+--INNER JOIN Encounter E
+--ON PC.EncounterID=E.EncounterID
+--
+--ALTER TABLE ClaimTransaction ENABLE TRIGGER ALL
+--
+--DROP TABLE #PC_NoCTs
+--DROP TABLE #MissingRES
+--DROP TABLE #Payments
+--DROP TABLE #PaymentCTPostingDates
+--DROP TABLE #CTPostingDate_XFR
+--DROP TABLE #Claim_Dates
+--DROP TABLE #CTMaxPostDate
+--DROP TABLE #NewPaymentPostDate
+--
+--GO
+--
+--CREATE TABLE #RES_ToInsert(PaymentClaimID INT, PostingDate DATETIME)
+--INSERT INTO #RES_ToInsert(PaymentClaimID, PostingDate)
+--SELECT PC.PaymentClaimID, MAX(CT.PostingDate) PostingDate
+--FROM PaymentClaim PC INNER JOIN ClaimTransaction CT
+--ON PC.PracticeID=CT.PracticeID AND PC.ClaimID=CT.ClaimID AND PC.PaymentID=CT.PaymentID
+--GROUP BY PC.PaymentClaimID
+--HAVING COUNT(CASE WHEN ClaimTransactionTypeCode='RES' THEN 1 ELSE NULL END)=0
+--
+--ALTER TABLE ClaimTransaction DISABLE TRIGGER ALL
+--
+--INSERT INTO ClaimTransaction(PracticeID, ClaimID, PaymentID, PatientID, Claim_ProviderID, CreatedUserID, ModifiedUserID, 
+--							 ClaimTransactionTypeCode, PostingDate)
+--SELECT PC.PracticeID, PC.ClaimID, PC.PaymentID, PC.PatientID, E.DoctorID Claim_ProviderID,
+--0 CreatedUserID, 0 ModifiedUserID, 'RES' ClaimTransactionTypeCode, CAST(CONVERT(CHAR(10),RI.PostingDate,110) AS DATETIME) PostingDate
+--FROM #RES_ToInsert RI INNER JOIN PaymentClaim PC
+--ON RI.PaymentClaimID=PC.PaymentClaimID
+--INNER JOIN Encounter E
+--ON PC.EncounterID=E.EncounterID
+--
+--ALTER TABLE ClaimTransaction ENABLE TRIGGER ALL
+--
+--DROP TABLE #RES_ToInsert
+--
+--GO
+--
+--CREATE TABLE #RES(RID INT IDENTITY(1,1), PracticeID INT, ClaimID INT, PaymentID INT, PayerTypeCode CHAR(1), InsurancePolicyID INT, ClaimTransactionID INT, PostingDate DATETIME)
+--INSERT INTO #RES(PracticeID, ClaimID, PaymentID, PayerTypeCode, InsurancePolicyID, ClaimTransactionID,  PostingDate)
+--SELECT CT.PracticeID, CT.ClaimID, CT.PaymentID, P.PayerTypeCode, PC.EOBXml.value('(eob/insurancePolicyID)[1]','INT') InsurancePolicy, CT.ClaimTransactionID, CT.PostingDate
+--FROM ClaimTransaction CT INNER JOIN PaymentClaim PC
+--ON CT.PracticeID=PC.PracticeID AND CT.ClaimID=PC.ClaimID AND CT.PaymentID=PC.PaymentID
+--INNER JOIN Payment P
+--ON PC.PracticeID=P.PracticeID AND PC.PaymentID=P.PaymentID
+--WHERE ClaimTransactionTypeCode='RES'
+--
+--CREATE TABLE #RES_References(RID INT, ReferenceID INT)
+--INSERT INTO #RES_References(RID, ReferenceID)
+--SELECT R.RID, MAX(CAB.ClaimTransactionID) ReferenceID
+--FROM #RES R INNER JOIN ClaimAccounting_Billings CAB
+--ON R.PracticeID=CAB.PracticeID AND R.ClaimID=CAB.ClaimID
+--INNER JOIN ClaimAccounting_Assignments CAA
+--ON CAB.PracticeID=CAA.PracticeID AND CAB.ClaimID=CAA.ClaimID AND R.InsurancePolicyID=CAA.InsurancePolicyID AND R.PostingDate>=CAB.PostingDate
+--AND ((CAB.ClaimTransactionID>CAA.ClaimTransactionID AND CAB.ClaimTransactionID<CAA.EndClaimTransactionID)
+--OR (CAA.EndClaimTransactionID IS NULL AND CAB.ClaimTransactionID>CAA.ClaimTransactionID))
+--GROUP BY R.RID
+--
+--INSERT INTO #RES_References(RID, ReferenceID)
+--SELECT R.RID, MAX(CAB.ClaimTransactionID) ReferenceID
+--FROM #RES R INNER JOIN ClaimAccounting_Billings CAB
+--ON R.PracticeID=CAB.PracticeID AND R.ClaimID=CAB.ClaimID
+--INNER JOIN ClaimAccounting_Assignments CAA
+--ON CAB.PracticeID=CAA.PracticeID AND CAB.ClaimID=CAA.ClaimID 
+--AND R.PayerTypeCode=CASE WHEN BatchType<>'S' OR BatchType IS NULL THEN 'I' ELSE 'P' END
+--AND R.PostingDate>=CAB.PostingDate																				
+--AND ((CAB.ClaimTransactionID>CAA.ClaimTransactionID AND CAB.ClaimTransactionID<CAA.EndClaimTransactionID)
+--OR (CAA.EndClaimTransactionID IS NULL AND CAB.ClaimTransactionID>CAA.ClaimTransactionID))
+--LEFT JOIN #RES_References RR
+--ON R.RID=RR.RID
+--WHERE RR.RID IS NULL
+--GROUP BY R.RID
+--
+--ALTER TABLE ClaimTransaction DISABLE TRIGGER ALL
+--
+--UPDATE CT SET ReferenceID=RR.ReferenceID
+--FROM #RES R INNER JOIN #RES_References RR
+--ON R.RID=RR.RID
+--INNER JOIN ClaimTransaction CT
+--ON RR.ReferenceID=CT.ClaimTransactionID
+--
+--ALTER TABLE ClaimTransaction ENABLE TRIGGER ALL
+--
+--ALTER TABLE ClaimAccounting_Billings ADD ResponsePostingDate DATETIME
+--
+--CREATE TABLE #MAX_ResponsePostingDate(ReferenceID INT, ResponsePostingDate DATETIME)
+--INSERT INTO #MAX_ResponsePostingDate(ReferenceID, ResponsePostingDate)
+--SELECT RR.ReferenceID, MAX(R.PostingDate) PostingDate
+--FROM #RES R INNER JOIN #RES_References RR
+--ON R.RID=RR.RID
+--GROUP BY RR.ReferenceID
+--
+--UPDATE CAB SET ResponsePostingDate=MR.ResponsePostingDate
+--FROM #MAX_ResponsePostingDate MR INNER JOIN ClaimAccounting_Billings CAB
+--ON MR.ReferenceID=CAB.ClaimTransactionID
+--
+--DROP TABLE #RES
+--DROP TABLE #RES_References
+--DROP TABLE #MAX_ResponsePostingDate
+--
+--GO
+--
+--CREATE TABLE #Denials(PaymentClaimID INT)
+--INSERT INTO #Denials(PaymentClaimID)
+--SELECT PaymentClaimID
+--FROM PaymentClaim PC INNER JOIN ClaimTransaction CT
+--ON PC.ClaimID=CT.ClaimID AND PC.PaymentID=CT.PaymentID
+--WHERE EOBXml IS NOT NULL
+--AND ((EOBXml.value('(eob/denial)[1]','BIT')=1) OR 
+--(EOBXml.value('(eob/items/denial)[1]','BIT')=1))
+--GROUP BY PaymentClaimID
+--HAVING COUNT(CASE WHEN CT.ClaimTransactionTypeCode='PAY' THEN 1 ELSE NULL END)=0
+--
+--CREATE TABLE #DenialPostingDate(PaymentClaimID INT, PostingDate DATETIME)
+--INSERT INTO #DenialPostingDate(PaymentClaimID, PostingDate)
+--SELECT D.PaymentClaimID, MAX(CT.PostingDate)
+--FROM #Denials D INNER JOIN PaymentClaim PC
+--ON D.PaymentClaimID=PC.PaymentClaimID
+--INNER JOIN ClaimTransaction CT
+--ON PC.PracticeID=CT.PracticeID AND PC.ClaimID=CT.ClaimID AND PC.PaymentID=CT.PaymentID
+--GROUP BY D.PaymentClaimID
+--
+----INSERT "DEN" transaction type into ClaimTransactionType
+--IF NOT EXISTS(SELECT * FROM ClaimTransactionType WHERE ClaimTransactionTypeCode='DEN')
+--	INSERT INTO ClaimTransactionType(ClaimTransactionTypeCode, TypeName)
+--	VALUES('DEN', 'Denial')
+--
+--ALTER TABLE ClaimTransaction DISABLE TRIGGER ALL
+--
+--INSERT INTO ClaimTransaction(PracticeID, ClaimID, PaymentID, PatientID, Claim_ProviderID, CreatedUserID, ModifiedUserID, 
+--							 ClaimTransactionTypeCode, PostingDate)
+--SELECT PC.PracticeID, PC.ClaimID, PC.PaymentID, E.PatientID, E.DoctorID Claim_ProviderID, 0, 0, 'DEN', DPD.PostingDate
+--FROM #DenialPostingDate DPD INNER JOIN PaymentClaim PC
+--ON DPD.PaymentClaimID=PC.PaymentClaimID
+--INNER JOIN Encounter E
+--ON PC.PracticeID=E.PracticeID AND PC.EncounterID=E.EncounterID
+--
+--ALTER TABLE ClaimTransaction ENABLE TRIGGER ALL
+--
+--DROP TABLE #Denials
+--DROP TABLE #DenialPostingDate
+--
+--
+--GO
+--

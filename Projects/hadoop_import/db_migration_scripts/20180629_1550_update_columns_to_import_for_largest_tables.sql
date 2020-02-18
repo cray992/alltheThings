@@ -1,0 +1,357 @@
+USE ReportingLog;
+
+UPDATE HDP_ColumnsToImport SET ColumnImportFlag=0
+WHERE ColumnId IN
+(
+    SELECT ColumnId
+    FROM HDP_ColumnsToImport c JOIN HDP_TablesToImport t on c.TableId = t.TableId
+    WHERE (t.TableName = 'Encounter' AND c.ColumnName IN (
+            'PatientEmployerID',
+            'AdminNotes',
+            'CreatedDate',
+            'ModifiedDate',
+            'ModifiedUserID',
+            'MedicareAssignmentCode',
+            'ReleaseOfInformationCode',
+            'ReleaseSignatureSourceCode',
+            'PlaceOfServiceCode',
+            'ConditionNotes',
+            'InsurancePolicyAuthorizationID',
+            'PaymentMethod',
+            'Reference',
+            'AddOns',
+            'HospitalizationStartDT',
+            'HospitalizationEndDT',
+            'Box19',
+            'DoNotSendElectronic',
+            'SubmittedDate',
+            'PaymentTypeID',
+            'PaymentDescription',
+            'EDIClaimNoteReferenceCode',
+            'EDIClaimNote',
+            'VendorID',
+            'VendorImportID',
+            'AppointmentStartDate',
+            'DoNotSendElectronicSecondary',
+            'PaymentCategoryID',
+            'overrideClosingDate',
+            'Box10d',
+            'ClaimTypeID',
+            'OperatingProviderID',
+            'OtherProviderID',
+            'PrincipalDiagnosisCodeDictionaryID',
+            'AdmittingDiagnosisCodeDictionaryID',
+            'PrincipalProcedureCodeDictionaryID',
+            'DRGCodeID',
+            'ProcedureDate',
+            'AdmissionTypeID',
+            'AdmissionDate',
+            'PointOfOriginCodeID',
+            'AdmissionHour',
+            'DischargeHour',
+            'DischargeStatusCodeID',
+            'Remarks',
+            'SubmitReasonID',
+            'DocumentControlNumber',
+            'PTAProviderID',
+            'SecondaryClaimTypeID',
+            'SubmitReasonIDCMS1500',
+            'SubmitReasonIDUB04',
+            'DocumentControlNumberCMS1500',
+            'DocumentControlNumberUB04',
+            'EDIClaimNoteReferenceCodeCMS1500',
+            'EDIClaimNoteReferenceCodeUB04',
+            'EDIClaimNoteCMS1500',
+            'EDIClaimNoteUB04',
+            'EncounterGuid',
+            'PatientCheckedIn',
+            'RoomNumber',
+            'DiagnosisMapSource',
+            'CollectionCategoryID')
+        )
+    OR (t.TableName = 'EncounterProcedure' AND c.ColumnName IN (
+            'CreatedDate',
+            'CreatedUserID',
+            'ModifiedDate',
+            'ModifiedUserID',
+            'ServiceEndDate',
+            'VendorID',
+            'VendorImportID',
+            'ContractID',
+            'Description',
+            'EDIServiceNoteReferenceCode',
+            'EDIServiceNote',
+            'TypeOfServiceCode',
+            'PatientResp',
+            'AssessmentDate',
+            'RevenueCodeID',
+            'NonCoveredCharges',
+            'DoctorID')
+        )
+    OR (t.TableName = 'Payment' AND c.ColumnName IN (
+            'ModifiedDate',
+            'SourceEncounterID',
+            'PaymentTypeID',
+            'DefaultAdjustmentCode',
+            'ModifiedUserID',
+            'SourceAppointmentID',
+            'EOBEditable',
+            'AdjudicationDate',
+            'ClearinghouseResponseID',
+            'ERAErrors',
+            'AppointmentID',
+            'AppointmentStartDate',
+            'PaymentCategoryID',
+            'overrideClosingDate',
+            'IsOnline')
+        )
+    OR (t.TableName = 'InsurancePolicy' AND c.ColumnName IN (
+            'CardOnFile',
+            'PatientRelationshipToInsured',
+            'HolderPrefix',
+            'HolderFirstName',
+            'HolderMiddleName',
+            'HolderLastName',
+            'HolderSuffix',
+            'HolderDOB',
+            'HolderSSN',
+            'HolderThroughEmployer',
+            'HolderEmployerName',
+            'PatientInsuranceStatusID',
+            'CreatedDate',
+            'CreatedUserID',
+            'ModifiedDate',
+            'ModifiedUserID',
+            'HolderGender',
+            'HolderAddressLine1',
+            'HolderAddressLine2',
+            'HolderCity',
+            'HolderState',
+            'HolderCountry',
+            'HolderZipCode',
+            'HolderPhone',
+            'HolderPhoneExt',
+            'DependentPolicyNumber',
+            'Notes',
+            'Phone',
+            'PhoneExt',
+            'Fax',
+            'FaxExt',
+            'PatientInsuranceNumber',
+            'AdjusterPrefix',
+            'AdjusterFirstName',
+            'AdjusterMiddleName',
+            'AdjusterLastName',
+            'AdjusterSuffix',
+            'VendorID',
+            'VendorImportID',
+            'InsuranceProgramTypeID',
+            'GroupName',
+            'ReleaseOfInformation',
+            'SyncWithEHR',
+            'InsurancePolicyGuid',
+            'MedicareFormularyID')
+        )
+    OR (t.TableName = 'ClaimAccounting' AND c.ColumnName IN (
+            'PatientID',
+            'Status')
+        )
+    OR (t.TableName = 'ClaimAccounting_Assignments' AND c.ColumnName IN (
+            'Status',
+            'LastAssignmentOfEndPostingDate',
+            'EndClaimTransactionID',
+            'DKPostingDateID',
+            'DKEndPostingDateID',
+            'RelativePrecedence')
+        )
+    OR (t.TableName = 'ClaimAccounting_Billings' AND c.ColumnName IN (
+            'ClaimTransactionID',
+            'Status',
+            'BatchType',
+            'LastBilled',
+            'EndPostingDate',
+            'LastBilledOfEndPostingDate',
+            'EndClaimTransactionID',
+            'DKPostingDateID',
+            'DKEndPostingDateID',
+            'ResponsePostingDate')
+        )
+    OR (t.TableName = 'ClaimAccounting_FollowUp' AND c.ColumnName IN (
+            'ClaimTransactionID')
+        )
+    OR (t.TableName = 'ClaimAccounting_Errors' AND c.ColumnName IN (
+            'CreatedSyncDate')
+        )
+    OR (t.TableName = 'PaymentClaim' AND c.ColumnName IN (
+            'PaymentClaimID',
+            'PaymentID',
+            'PracticeID',
+            'PatientID',
+            'EncounterID',
+            'RawEOBXml',
+            'Notes',
+            'Reversed',
+            'Draft',
+            'HasError',
+            'ErrorMsg',
+            'PaymentRawEOBID')
+        )
+    OR (t.TableName = 'Claim' AND c.ColumnName IN (
+            'ReleaseSignatureSourceCode',
+            'CreatedDate',
+            'ModifiedDate',
+            'LocalUseData',
+            'ReferringProviderIDNumber',
+            'NonElectronicOverrideFlag',
+            'ClearinghouseProcessingStatus',
+            'ClearinghousePayer',
+            'ClearinghousePayerReported',
+            'PayerProcessingStatusTypeCode',
+            'CurrentPayerProcessingStatusTypeCode',
+            'CurrentClearinghouseProcessingStatus',
+            'ModifiedUserID',
+            'DKProcedureDateOfServiceID',
+            'SearchIndex',
+            'Uncollectible')
+        )
+);
+
+
+UPDATE HDP_ColumnsToImport SET ColumnImportFlag=1
+WHERE ColumnId IN
+(
+    SELECT ColumnId
+    FROM HDP_ColumnsToImport c JOIN HDP_TablesToImport t on c.TableId = t.TableId
+    WHERE (t.TableName = 'Encounter' AND c.ColumnName IN (
+            'EncounterID',
+            'PracticeID',
+            'PatientID',
+            'DoctorID',
+            'AppointmentID',
+            'LocationID',
+            'DateOfService',
+            'DateCreated',
+            'Notes',
+            'EncounterStatusID',
+            'AmountPaid',
+            'CreatedUserID',
+            'PatientCaseID',
+            'PostingDate',
+            'DateOfServiceTo',
+            'SupervisingProviderID',
+            'ReferringPhysicianID',
+            'BatchID',
+            'SchedulingProviderID')
+        )
+    OR (t.TableName = 'EncounterProcedure' AND c.ColumnName IN (
+            'EncounterProcedureID',
+            'EncounterID',
+            'ProcedureCodeDictionaryID',
+            'ServiceChargeAmount',
+            'ServiceUnitCount',
+            'ProcedureModifier1',
+            'ProcedureModifier2',
+            'ProcedureModifier3',
+            'ProcedureModifier4',
+            'ProcedureDateOfService',
+            'PracticeID',
+            'EncounterDiagnosisID1',
+            'EncounterDiagnosisID2',
+            'EncounterDiagnosisID3',
+            'EncounterDiagnosisID4',
+            'AnesthesiaTime',
+            'ApplyPayment',
+            'StartTime',
+            'EndTime',
+            'ConcurrentProcedures',
+            'StartTimeText',
+            'EndTimeText',
+            'EncounterDiagnosisID5',
+            'EncounterDiagnosisID6',
+            'EncounterDiagnosisID7',
+            'EncounterDiagnosisID8')
+        )
+    OR (t.TableName = 'Payment' AND c.ColumnName IN (
+            'PaymentID',
+            'PracticeID',
+            'PaymentAmount',
+            'PaymentMethodCode',
+            'PayerTypeCode',
+            'PayerID',
+            'PaymentNumber',
+            'Description',
+            'CreatedDate',
+            'PostingDate',
+            'BatchID',
+            'CreatedUserID')
+        )
+    OR (t.TableName = 'InsurancePolicy' AND c.ColumnName IN (
+            'InsurancePolicyID',
+            'PatientCaseID',
+            'InsuranceCompanyPlanID',
+            'Precedence',
+            'PolicyNumber',
+            'GroupNumber',
+            'PolicyStartDate',
+            'PolicyEndDate',
+            'Copay',
+            'Deductible',
+            'Active',
+            'PracticeID')
+        )
+    OR (t.TableName = 'ClaimAccounting' AND c.ColumnName IN (
+            'PracticeID',
+            'ClaimID',
+            'ProviderID',
+            'ClaimTransactionID',
+            'ClaimTransactionTypeCode',
+            'ProcedureCount',
+            'Amount',
+            'ARAmount',
+            'PostingDate',
+            'CreatedUserID',
+            'PaymentID',
+            'EncounterProcedureID')
+        )
+    OR (t.TableName = 'ClaimAccounting_Assignments' AND c.ColumnName IN (
+            'PracticeID',
+            'ClaimID',
+            'ClaimTransactionID',
+            'InsurancePolicyID',
+            'InsuranceCompanyPlanID',
+            'PatientID',
+            'LastAssignment',
+            'PostingDate',
+            'EndPostingDate')
+        )
+    OR (t.TableName = 'ClaimAccounting_Billings' AND c.ColumnName IN (
+            'PracticeID',
+            'ClaimID',
+            'PostingDate')
+        )
+    OR (t.TableName = 'ClaimAccounting_FollowUp' AND c.ColumnName IN (
+            'ClaimID',
+            'FollowUpDate',
+            'PracticeID')
+        )
+    OR (t.TableName = 'ClaimAccounting_Errors' AND c.ColumnName IN (
+            'ClaimID',
+            'ClaimTransactionTypeCode',
+            'PracticeID')
+        )
+    OR (t.TableName = 'PaymentClaim' AND c.ColumnName IN (
+            'ClaimID',
+            'EOBXml')
+        )
+    OR (t.TableName = 'Claim' AND c.ColumnName IN (
+            'ClaimID',
+            'PracticeID',
+            'ClaimStatusCode',
+            'PatientID',
+            'EncounterProcedureID',
+            'ClearinghouseTrackingNumber',
+            'PayerTrackingNumber',
+            'PayerProcessingStatus',
+            'CreatedUserID')
+        )
+);

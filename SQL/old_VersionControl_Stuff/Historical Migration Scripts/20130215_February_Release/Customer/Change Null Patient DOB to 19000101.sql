@@ -1,0 +1,3 @@
+UPDATE dbo.Patient
+SET DOB = '1/1/1900'
+WHERE DOB IS NULL

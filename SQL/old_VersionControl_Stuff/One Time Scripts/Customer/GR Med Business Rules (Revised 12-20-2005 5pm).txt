@@ -1,0 +1,875 @@
+--Modify the PracticeID # to apply to the desired practice
+
+--Forms
+--1	CMS1500	CMS 1500 Form
+--8	MASSM5	Massachusetts Medicaid Form 5
+--9	Encounter Form	Encounter Form
+--2	DFR	Doctor's First Report of Occupational Injury or Illness
+--3	IOC	Itemization of Charges
+--4	NOR	Notice of Representation
+--5	PR2	Primary Treating Physicians Progress
+--6	POS	Proof of Service
+--7	Label	Mailing Label
+
+--Recipients
+--1	Practice
+--2	Assigned Insurance
+--3	Applicant Attorney
+--4	Defense Attorney
+--5	Referring Physician
+--6	Employer
+--7	Doctor
+
+	DECLARE @PracticeID INT
+	SET @PracticeID=65	
+
+	DELETE BusinessRule WHERE PracticeID=@PracticeID
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 1',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 1">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9920?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9924?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9927?" />
+				<condition field="ReferringPhysicianID" fieldName="Referring Physician" predicateName="Exists" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+						<recipient value="6" valueName="Employer" />
+						<recipient value="5" valueName="Referring Physician" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 2 (Same as Business Rule 1 but without Referring Physician)',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 2">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9920?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9924?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9927?" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+						<recipient value="6" valueName="Employer" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 3',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 3">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?|17" />
+				<condition field="ReferringPhysicianID" fieldName="Referring Physician" predicateName="Exists" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+						<recipient value="5" valueName="Referring Physician" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="3" valueName="IOC Itemization of Charges" />
+				</action>
+			</actions>
+			</businessRule>'
+		)			
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 4 (Same as Business Rule 3 but without Referring Physician)',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 4">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?|17" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="3" valueName="IOC Itemization of Charges" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 5',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 5">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?" />
+				<condition field="ReferringPhysicianID" fieldName="Referring Physician" predicateName="Exists" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+						<recipient value="5" valueName="Referring Physician" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)			
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 6 (Same as Business Rule 5 but without Referring Physician)',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 6">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 7',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 7">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML101|95" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML102|95" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML103|95" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML104|95" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 8',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 8">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML101" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML102" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML103" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML104" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />
+					<document value="4" valueName="Notice of Representation" />				
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)		
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 9',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 9">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9920?|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9924?|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9927?|32" />
+				<condition field="ReferringPhysicianID" fieldName="Referring Physician" predicateName="Exists" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+						<recipient value="5" valueName="Referring Physician" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)		
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 10 (Same as Business Rule 9 but without Referring Physician)',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 10">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9920?|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9924?|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9927?|32" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 11',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 11">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?|32" />
+				<condition field="ReferringPhysicianID" fieldName="Referring Physician" predicateName="Exists" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+						<recipient value="5" valueName="Referring Physician" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)		
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 12 (Same as Business Rule 11 but without Referring Physician)',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 12">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?|32" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)			
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 13',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 13">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?|17" />
+				<condition field="ReferringPhysicianID" fieldName="Referring Physician" predicateName="Exists" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+						<recipient value="5" valueName="Referring Physician" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="4" valueName="Notice of Representation" />	
+					<document value="3" valueName="IOC Itemization of Charges" />
+				</action>
+			</actions>
+			</businessRule>'
+		)		
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 14 (Same as Business Rule 13 but without Referring Physician)',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 14">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9921?|17" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="4" valueName="Notice of Representation" />	
+					<document value="3" valueName="IOC Itemization of Charges" />
+				</action>
+			</actions>
+			</businessRule>'
+		)		
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 15',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 15">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML101|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML102|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML103|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML104|32" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 16',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 16">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML101|95|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML102|95|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML103|95|32" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML104|95|32" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="4" valueName="Notice of Representation" />	
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 17',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 17">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML101|94" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML102|94" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML103|94" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="ML104|94" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 18',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 18">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="1????" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="2????" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="3????" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="4????" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="5????" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="6????" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)					
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 19',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 19">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9700?" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+					</parameter>		
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 20',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 20">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="9087?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="909?1" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="E0746" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)	
+		
+	
+	
+
+	INSERT	BusinessRule(
+			PracticeID,
+			BusinessRuleProcessingTypeID,
+			Name,
+			SortOrder,
+			ContinueProcessing, 
+			BusinessRuleXML
+		)
+	VALUES	(	@PracticeID,
+			1,
+			'Business Rule 21',
+			1,
+			0, 
+			'<?xml version="1.0" encoding="utf-8"?>
+			<businessRule name="Business Rule 21">
+			<conditions>
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Defense" />
+				<condition field="PayerScenarioID" fieldName="Payer Scenario" predicateName="Equals" value="15" valueName="Workers Comp - Applicant" />
+				<condition field="State" fieldName="State" predicateName="Equals" value="CA" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="70336" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="705??" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="7155?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="721??" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="732??" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="737??" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="741??" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="7555?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="7609?" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="76375" />
+				<condition field="ProcedureCode" fieldName="Procedure Code" predicateName="Equals" value="76400" />
+			</conditions>
+			<actions>
+				<action storedProcedure="BusinessRuleEngine_ActionPrintDocuments">
+					<parameter>
+						<recipient value="2" valueName="Assigned Insurance" />
+						<recipient value="3" valueName="Applicant Attorney" />
+						<recipient value="4" valueName="Defense Attorney" />
+					</parameter>
+					<document value="7" valueName="Mailing Label" />
+					<document value="6" valueName="Proof of Service" />			
+					<document value="1" valueName="CMS 1500 Form" />
+				</action>
+			</actions>
+			</businessRule>'
+		)

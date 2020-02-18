@@ -1,0 +1,122 @@
+[GLOBAL]
+environment=STG
+is_debug_enabled=false
+failure_report_recipients = squaddata@kareo.com
+report_failure_limit = 1000
+
+[DEBUG]
+; List of customer IDs to process in debug mode
+customer_ids=
+
+[SMTP]
+smtp_server=sna-smtp.kareoprod.ent
+
+[ETL]
+mapreduce_reducers=1
+mapreduce_memory=4096
+spark_executors=10
+spark_executor_memory=20g
+spark_driver_memory=10g
+spark_major_version=2
+
+[INGESTION]
+num_workers = 5
+batch_size = 10
+num_buckets = 20
+max_retries = 4
+
+[SPARK]
+; deploy_mode: Sets Spark job deployment mode
+; Options: client or cluster
+; In cluster mode, the spark driver runs inside a container in the spark cluster
+; In client mode, the spark driver runs in local process in the client machine.
+; This is particularly useful in cases that the spark driver does not perform any processing such as computing totals
+; from partial results computed by workers. For example ingestion jobs that only involve read/write operations.
+deploy_mode = cluster
+
+; spark_major_version: It switches Spark SDK (PySpark) version for any job that is sent to the Spark cluster
+; Value options: 1 or 2
+; Both version 1 and 2 are available in our HortonWorks Data Platform (HDP)
+spark_major_version=2
+
+[DB:MSSQL]
+db_server = sna-sgw-db-01.kareoprod.ent
+db_user = kareoprod\s-hadoop-user
+db_password = f|xkuch9IoVe
+db_domain=kareoprod.ent
+db_port = 4400
+max_retries = 3
+
+[DB:HIVE]
+db_server = sna-sgx-hmas-02.kareoprod.ent
+db_metastore = sna-sgx-hmas-02.kareoprod.ent
+db_port   = 10500
+db_user   = s-jamsstg-svc
+db_password =
+
+[DB:MSSQL:SUBSCRIPTIONS]
+; Settings for DB containing customer and product subscription data
+db_port = 4402
+db_name = superbill_shared
+
+[DB:MSSQL:APPLICATION_METADATA]
+; Settings for DB containing metadata and config for hadoop-import and qlik-import
+db_port = 4401
+db_name = ReportingLog
+
+[DB:MSSQL:CHANGE_TRACKING]
+; Settings for DB containing metadata and sproc for enabling Change Tracking
+db_port = 4401
+db_name = ReportingLog
+
+[DB:HIVE:ETL]
+; Settings for DB storing results of ETLs
+db_name = etl
+
+; TODO: Remove these configs when deprecating the old DbManager
+; All these configs are used by the old DbManager ot be deprecated
+
+[HIVE]
+hive_buckets = 20
+
+[DB_COMMON]
+mssql_user = kareoprod\s-hadoop-user
+mssql_passwd = f|xkuch9IoVe
+mssql_db_server_domain=kareoprod.ent
+hive_server = sna-sgx-hmas-01.kareoprod.ent
+hive_metastore = sna-sgx-hmas-02.kareoprod.ent
+hive_port   = 10000
+hive_user   = s-jamsstg-svc
+hive_passwd =
+
+[DBCONN:mssql:customer]
+server = sna-sgw-db-01.kareoprod.ent
+port = 4400
+db_name = master
+
+[DBCONN:mssql:shared]
+server = sna-sgw-db-01.kareoprod.ent
+port = 4402
+db_name = superbill_shared
+
+[DBCONN:mssql:salesforce]
+server = sna-sgw-db-01.kareoprod.ent
+port = 4401
+db_name = SFDC_Sesame
+
+[DBCONN:mssql:enterprise_reports]
+server = sna-sgw-db-01.kareoprod.ent
+port = 4401
+db_name = ReportingLog
+
+[DBCONN:hive:hive_global]
+db_name = customer
+
+[DBCONN:hive:hive_etl]
+db_name = etl
+
+[DBCONN:hive:hive_shared]
+db_name = shared
+
+[DBCONN:hive:hive_salesforce]
+db_name = salesforce

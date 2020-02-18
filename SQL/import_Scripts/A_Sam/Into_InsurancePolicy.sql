@@ -1,0 +1,128 @@
+﻿PRINT ''
+PRINT 'Inserting into InsurancePolicy ...'
+INSERT INTO dbo.InsurancePolicy
+(
+PatientCaseID ,
+InsuranceCompanyPlanID ,
+Precedence ,
+PolicyNumber ,
+GroupNumber ,
+PolicyStartDate ,
+PolicyEndDate ,
+CardOnFile ,
+ PatientRelationshipToInsured,
+HolderPrefix ,
+HolderFirstName ,
+HolderMiddleName ,
+HolderLastName ,
+HolderSuffix ,
+HolderDOB ,
+HolderSSN ,
+HolderThroughEmployer ,
+HolderEmployerName ,
+PatientInsuranceStatusID ,
+CreatedDate ,
+CreatedUserID ,
+ModifiedDate ,
+ModifiedUserID ,
+HolderGender ,
+HolderAddressLine1 ,
+HolderAddressLine2 ,
+HolderCity ,
+HolderState ,
+HolderCountry ,
+HolderZipCode ,
+HolderPhone ,
+HolderPhoneExt ,
+DependentPolicyNumber ,
+Notes ,
+Phone ,
+PhoneExt ,
+Fax ,
+FaxExt ,
+Copay ,
+Deductible ,
+PatientInsuranceNumber ,
+Active ,
+PracticeID ,
+AdjusterPrefix ,
+AdjusterFirstName ,
+AdjusterMiddleName ,
+AdjusterLastName ,
+AdjusterSuffix ,
+VendorID ,
+VendorImportID ,
+InsuranceProgramTypeID ,
+GroupName ,
+ReleaseOfInformation, 
+SyncWithEHR
+)
+SELECT
+DISTINCT
+
+pc.PatientCaseID ,
+icp.InsuranceCompanyPlanID ,
+1, --ip.Precedence ,
+ip.PolicyNumber1 ,
+ip.GroupNumber1 ,
+CASE WHEN ISDATE(ip.Policy1StartDate) = 1 THEN ip.policy1startdate ELSE NULL END ,
+CASE WHEN ISDATE(ip.Policy1EndDate) = 1 THEN ip.policy1enddate ELSE NULL END ,
+0, --ip.CardOnFile ,
+CASE WHEN  PatientRelationship1 ='' THEN 'S' ELSE NULL END ,
+NULL, --ip.HolderPrefix ,
+ip.Holder1FirstName ,
+ip.Holder1MiddleName ,
+ip.Holder1LastName ,
+NULL, --ip.Holder1Suffix ,
+ip.Holder1dateofbirth ,
+ip.Holder1SSN ,
+0, --ip.holderthroughemployer ,
+ip.Employer1 ,
+0, --ip.PatientInsuranceStatusID ,
+GETDATE() ,
+0 ,
+GETDATE() ,
+0 ,
+ip.holder1Gender ,
+ip.holder1street1 ,
+ip.holder1street2 ,
+ip.Holder1City ,
+ip.Holder1State ,
+NULL, --ip.HolderCountry ,
+ip.Holder1ZipCode ,
+NULL, --ip.HolderPhone ,
+NULL, --ip.HolderPhoneExt ,
+ip.policynumber1 ,
+ip.policy1Note ,
+NULL, --ip.Phone ,
+NULL, --ip.PhoneExt ,
+NULL, --ip.Fax ,
+NULL, --ip.FaxExt ,
+ip.policy1Copay ,
+ip.policy1Deductible ,
+NULL, --ip.PatientInsuranceNumber , -- ASK SHEA what this number is referring to
+1, --ip.active ,
+@TargetPracticeID ,
+NULL, --ip.AdjusterPrefix ,
+NULL, --ip.AdjusterFirstName ,
+NULL, --ip.AdjusterMiddleName ,
+NULL, --ip.AdjusterLastName ,
+NULL, --ip.AdjusterSuffix ,
+ip.chartnumber, --ip.InsurancePolicyID ,
+@VendorImportID ,
+NULL, --ip.insuranceprogramtypeid ,
+ip.primaryGroupName ,
+NULL, --ip.ReleaseOfInformation
+1 --syncwithehr (primary case flag)
+
+FROM dbo._import_5_12_patientDemographics ip
+INNER JOIN dbo._import_5_12_Insurancecompanyplanlist icpl ON ip.insurancecode1=icpl.insuranceid
+INNER JOIN dbo.PatientCase pc ON
+ip.chartnumber = pc.VendorID AND
+pc.VendorImportID = @VendorImportID
+INNER JOIN dbo.InsuranceCompanyPlan icp ON
+icpl.insuranceid = icp.vendorid AND
+icp.VendorImportID =@VendorImportID AND CreatedPracticeID=@TargetPracticeID
+LEFT JOIN dbo.InsurancePolicy ipo ON ipo.InsuranceCompanyPlanID = icp.InsuranceCompanyPlanID AND ipo.PracticeID=@TargetPracticeID AND ipo.PatientCaseID=pc.PatientCaseID  AND policynumber1=ipo.PolicyNumber
+WHERE InsurancePolicyID IS NULL AND pc.PatientCaseID<>1907
+PRINT CAST(@@ROWCOUNT AS VARCHAR) + ' records inserted'

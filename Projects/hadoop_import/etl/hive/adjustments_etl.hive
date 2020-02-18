@@ -1,0 +1,84 @@
+SET hive.vectorized.execution.mapjoin.native.enabled=FALSE;
+
+
+DROP TABLE IF EXISTS ALL_ProcedureCodeDictionary;
+DROP TABLE IF EXISTS ADJ_ClaimEncounter;
+DROP TABLE IF EXISTS ADJ_ClaimTransactionClaimEncounter;
+DROP TABLE IF EXISTS ADJ_RESULT;
+
+
+CREATE TABLE ALL_ProcedureCodeDictionary AS
+SELECT DISTINCT partitioncustomerid,
+                ProcedureCodeDictionaryId,
+                ProcedureCode
+FROM ${hive_global}.ProcedureCodeDictionary${staging_suffix};
+
+
+CREATE TABLE IF NOT EXISTS ADJ_ClaimEncounter AS
+SELECT CL.partitioncustomerid,
+       CL.ClaimID,
+       CL.PracticeID,
+       EP.ProcedureDateOfService,
+       EP.ProcedureCodeDictionaryID,
+       EP.ServiceChargeAmount * EP.ServiceUnitCount Charges
+FROM ${hive_global}.claim${staging_suffix} CL
+JOIN ${hive_global}.encounterprocedure${staging_suffix} EP ON CL.EncounterProcedureID = EP.EncounterProcedureID
+AND CL.PracticeId = EP.PracticeID
+AND EP.partitioncustomerid = CL.partitioncustomerid;
+
+
+CREATE TABLE IF NOT EXISTS ADJ_ClaimTransactionClaimEncounter AS
+SELECT CA.partitioncustomerid,
+       CA.practiceID,
+       CA.Amount AS Adjustments,
+       CA.PostingDate,
+       CA.PaymentID,
+       CA.ClaimID,
+       ACE.ProcedureCodeDictionaryID,
+       ACE.Charges,
+       CA.AdjustmentCode,
+       CA.EncounterProcedureID
+FROM ${hive_global}.ClaimTransaction${staging_suffix} ca
+JOIN ADJ_ClaimEncounter ACE ON ca.PracticeID = ACE.PracticeID
+AND ca.ClaimID = ACE.ClaimID
+AND ca.PracticeID = ACE.practiceId
+AND ca.partitioncustomerid = ACE.partitioncustomerid
+WHERE ca.ClaimTransactionTypeCode IN ('ADJ');
+
+
+CREATE TABLE IF NOT EXISTS ADJ_RESULT AS
+SELECT CTCE.partitioncustomerid AS customerId,
+       CTCE.ClaimId,
+       ADJ.AdjustmentCode,
+       NVL(ADJ.Description, 'Unspecified Adjustment') Description,
+       CTCE.PostingDate,
+       PCD.ProcedureCode,
+       CTCE.Charges,
+       CTCE.Adjustments,
+       CTCE.EncoutnerProcedureID
+FROM ADJ_ClaimTransactionClaimEncounter CTCE
+JOIN ALL_ProcedureCodeDictionary pcd ON PCD.ProcedureCodeDictionaryID = CTCE.ProcedureCodeDictionaryID
+AND PCD.partitioncustomerid = CTCE.partitioncustomerid
+JOIN ${hive_global}.Adjustment${staging_suffix} ADJ ON ADJ.AdjustmentCode = CTCE.AdjustmentCode
+AND ADJ.partitioncustomerid = CTCE.partitioncustomerid;
+
+ALTER TABLE ${hive_etl}.Adjustments${etl_suffix} DROP PARTITION (partitioncustomerid > 0);
+
+INSERT OVERWRITE TABLE ${hive_etl}.Adjustments${etl_suffix} PARTITION(partitionCustomerId)
+SELECT r.CustomerID,
+       r.ClaimID,
+       r.AdjustmentCode,
+       r.Description,
+       r.PostingDate,
+       r.ProcedureCode,
+       r.Charges,
+       r.Adjustments,
+       r.encounterprocedureid,
+       r.customerId
+FROM ADJ_RESULT r DISTRIBUTE BY r.customerId;
+
+
+DROP TABLE IF EXISTS ALL_ProcedureCodeDictionary;
+DROP TABLE IF EXISTS ADJ_ClaimTransactionClaimEncounter;
+DROP TABLE IF EXISTS ADJ_ClaimEncounter;
+DROP TABLE IF EXISTS ADJ_RESULT;

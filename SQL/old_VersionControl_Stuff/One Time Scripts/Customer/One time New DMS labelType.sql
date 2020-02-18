@@ -1,0 +1,1 @@
+update documentlabeltype set Name='Patient Driver''s License', Description='Patient Driver''s License' where documentlabeltypeid=8

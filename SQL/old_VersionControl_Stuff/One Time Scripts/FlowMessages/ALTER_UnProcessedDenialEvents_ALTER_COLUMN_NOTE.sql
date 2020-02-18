@@ -1,0 +1,1 @@
+ALTER TABLE [UnProcessedDenialEvents] ALTER COLUMN [Note] NVARCHAR(MAX)

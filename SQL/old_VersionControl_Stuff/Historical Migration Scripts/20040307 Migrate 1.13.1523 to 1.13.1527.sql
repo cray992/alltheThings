@@ -1,0 +1,10 @@
+/*
+
+DATABASE UPDATE SCRIPT
+
+v1.13.1523 to v.1.13.1527
+
+*/
+
+ALTER TABLE Claim
+ADD ReferringProviderIDNumber VARCHAR(25) NULL

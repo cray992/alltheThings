@@ -1,0 +1,651 @@
+DROP TABLE IF EXISTS ASNMax;
+DROP TABLE IF EXISTS ARCodes;
+DROP TABLE IF EXISTS ASN;
+DROP TABLE IF EXISTS CA;
+DROP TABLE IF EXISTS CA_EEP;
+DROP TABLE IF EXISTS EEP;
+DROP TABLE IF EXISTS ClaimStatus;
+DROP TABLE IF EXISTS LastActionData;
+DROP TABLE IF EXISTS AR_ASN_WIP;
+DROP TABLE IF EXISTS AR_ASN;
+DROP TABLE IF EXISTS NonZeroAR;
+DROP TABLE IF EXISTS ARSummary;
+DROP TABLE IF EXISTS SummarizedUnapplied;
+DROP TABLE IF EXISTS AppliedReceipts;
+DROP TABLE IF EXISTS concat_PID;
+DROP TABLE IF EXISTS ClaimPayments;
+
+CREATE TABLE IF NOT EXISTS ASNMax AS
+SELECT caa.partitioncustomerid,
+       caa.PracticeID,
+       CAA.ClaimID,
+       MAX(caa.ClaimTransactionID) ClaimTransactionID,
+       MIN(cab.PostingDate)FirstBilledDate,
+       MAX(cab.PostingDate)LastBilledDate
+FROM ${hive_global}.ClaimAccounting_Assignments${staging_suffix} CAA
+LEFT JOIN ${hive_global}.ClaimAccounting_Billings${staging_suffix} AS cab ON cab.ClaimID = CAA.ClaimID
+AND cab.PracticeID = CAA.PracticeID
+AND caa.partitioncustomerid=cab.partitioncustomerid
+WHERE caa.PostingDate<=CURRENT_DATE
+GROUP BY caa.partitioncustomerid,
+         caa.PracticeID,
+         CAA.ClaimID;
+
+
+CREATE TABLE ARCodes AS
+SELECT partitioncustomerid,
+       PracticeID,
+       ClaimID,
+       concat_ws(",", collect_set(AdjustmentReasonCode))AdjustmentReasonCodes
+FROM
+  (SELECT DISTINCT ct1.partitioncustomerid,
+                   ct1.ClaimID,
+                   ct1.PracticeID,
+                   ct1.AdjustmentReasonCode
+   FROM ${hive_global}.claimtransaction${staging_suffix} ct1
+   JOIN ASNMax caa ON ct1.ClaimId=CAA.ClaimID
+   AND ct1.practiceID=CAA.PracticeID
+   AND ct1.AdjustmentReasonCode<>0
+   AND caa.partitioncustomerid=ct1.partitioncustomerid)aa
+GROUP BY partitioncustomerid,
+         PracticeID,
+         ClaimID;
+
+
+CREATE TABLE IF NOT EXISTS ASN AS
+SELECT caa.partitioncustomerid,
+       CAA.PracticeID,
+       CAA.ClaimID,
+       FirstBilledDate,
+       LastBilledDate,
+       ip.InsurancePolicyID,
+       ip.InsuranceCompanyPlanID,
+       icp.PlanName,
+       icp.InsuranceCompanyID,
+       ar.AdjustmentReasonCodes
+FROM ${hive_global}.ClaimAccounting_Assignments${staging_suffix} CAA
+JOIN ASNMax AM ON CAA.ClaimID=AM.ClaimID
+AND CAA.ClaimTransactionID=AM.ClaimTransactionID
+AND AM.PracticeID = CAA.PracticeID
+AND am.partitioncustomerid=caa.partitioncustomerid
+LEFT JOIN ARCodes ar ON caa.ClaimID=ar.ClaimID
+AND caa.PracticeID=ar.PracticeID
+AND ar.partitioncustomerid=caa.partitioncustomerid
+LEFT JOIN ${hive_global}.InsurancePolicy${staging_suffix} ip ON caa.PracticeID = ip.PracticeID
+AND CAA.InsurancePolicyID=IP.InsurancePolicyID
+AND ip.partitioncustomerid=caa.partitioncustomerid
+LEFT JOIN ${hive_global}.InsuranceCompanyPlan${staging_suffix} icp ON CAA.InsuranceCompanyPlanID=ICP.InsuranceCompanyPlanID
+AND icp.partitioncustomerid=caa.partitioncustomerid
+LEFT JOIN ${hive_global}.InsuranceCompany${staging_suffix} ic
+AND ic.partitioncustomerid=icp.partitioncustomerid
+WHERE CAA.PostingDate<=CURRENT_DATE;
+
+
+CREATE TABLE IF NOT EXISTS CA AS
+SELECT c.partitioncustomerid,
+       C.ClaimID,
+       C.PracticeId,
+       C.EncounterProcedureID,
+       CA.ProviderID,
+       CA.ClaimTransactionID,
+       CA.ClaimTransactionTypeCode,
+       CA.ProcedureCount,
+       AdjustmentReasonCodes,
+       CA.Amount,
+       CA.ARAmount,
+       CA.PostingDate AS CA_PostingDate,
+       CA.PaymentID,
+       FirstBilledDate,
+       LastBilledDate,
+       InsurancePolicyID,
+       InsuranceCompanyPlanID,
+       PlanName,
+       InsuranceCompanyID,
+       InsuranceCompanyName
+FROM ${hive_global}.Claim${staging_suffix} AS C
+JOIN ${hive_global}.ClaimAccounting${staging_suffix} AS ca ON Ca.ClaimId=c.ClaimId
+AND CA.PracticeId=c.PracticeID
+AND ca.partitioncustomerid=c.partitioncustomerid
+LEFT JOIN ASN asn ON asn.ClaimID = ca.ClaimID
+AND asn.PracticeID = CA.PracticeId
+AND asn.partitioncustomerid=ca.partitioncustomerid;
+
+
+CREATE TABLE IF NOT EXISTS EEP AS
+SELECT ep.partitioncustomerid,
+       ep.PracticeID,
+       e.DoctorId,
+       e.EncounterID,
+       e.PatientCaseID,
+       ep.EncounterProcedureID,
+       ep.ProcedureCodeDictionaryID,
+       ep.ProcedureDateOfService,
+       e.PostingDate EncounterDate,
+       e.PatientID,
+       e.LocationID,
+       e.BatchID,
+       ep.ServiceChargeAmount*ep.ServiceUnitCount AS Charges,
+       e.EncounterStatusID,
+       ep.ApplyPayment,
+       e.DateOfService ,
+       ep.ProcedureModifier1,
+       ep.proceduremodifier2,
+       ep.ProcedureModifier3,
+       ep.ProcedureModifier4
+FROM ${hive_global}.EncounterProcedure${staging_suffix} ep
+JOIN ${hive_global}.Encounter${staging_suffix} e ON e.PracticeID = ep.PracticeID
+AND e.EncounterID = ep.EncounterID
+AND ep.partitioncustomerid=e.partitioncustomerid;
+
+
+CREATE TABLE IF NOT EXISTS CA_EEP AS
+SELECT eep.partitioncustomerid,
+       eep.PracticeID,
+       eep.DoctorId,
+       eep.EncounterID,
+       eep.PatientCaseID,
+       eep.EncounterProcedureID,
+       eep.ProcedureCodeDictionaryID,
+       ca.AdjustmentReasonCodes,
+       eep.ProcedureDateOfService,
+       eep.EncounterDate,
+       eep.PatientID,
+       eep.LocationID,
+       eep.BatchID,
+       eep.Charges,
+       eep.EncounterStatusID,
+       eep.ApplyPayment,
+       eep.DateOfService,
+       ca.ClaimID,
+       ca.ClaimTransactionID,
+       ca.ClaimTransactionTypeCode,
+       ca.ProcedureCount,
+       ca.Amount,
+       ca.ARAmount,
+       ca.CA_PostingDate,
+       ca.PaymentID ,
+       ca.FirstBilledDate,
+       ca.LastBilledDate,
+       ca.InsurancePolicyID,
+       ca.InsuranceCompanyPlanID,
+       ca.PlanName,
+       ca.InsuranceCompanyID,
+       ca.InsuranceCompanyName
+       eep.ProcedureModifier1,
+       eep.proceduremodifier2,
+       eep.ProcedureModifier3,
+       eep.ProcedureModifier4
+FROM EEP
+JOIN CA ON CA.PracticeID=EEP.PRacticeID
+AND EEP.EncounterProcedureID=CA.EncounterPRocedureID
+AND EEP.partitioncustomerid=ca.partitioncustomerid;
+
+
+
+CREATE TABLE IF NOT EXISTS ClaimStatus AS
+SELECT DISTINCT c.partitioncustomerid,
+                C.ClaimID,
+                C.PracticeID,
+                CASE
+                    WHEN CE.ClaimTransactionTypeCode = 'DEN' THEN CASE
+                                                                      WHEN C.ClaimStatusCode = 'P'
+                                                                           AND (CAF.FollowUpDate IS NOT NULL
+                                                                                AND CAF.FollowUpDate > CURRENT_DATE) THEN 'Pending insurance'
+                                                                      ELSE 'Denied'
+                                                                  END
+                    WHEN CE.ClaimTransactionTypeCode = 'BLL' THEN CASE
+                                                                      WHEN CAF.FollowUpDate IS NOT NULL
+                                                                           AND CAF.FollowUpDate > CURRENT_DATE THEN 'Pending insurance'
+                                                                      ELSE 'No Response'
+                                                                  END
+                    WHEN CE.ClaimTransactionTypeCode = 'RJT' THEN 'Rejected'
+                    WHEN CE.ClaimTransactionTypeCode IS NOT NULL THEN 'Error'
+                    WHEN C.ClaimStatusCode = 'C' THEN 'Completed'
+                    WHEN C.ClaimStatusCode = 'P' THEN CASE
+                                                          WHEN CAF.FollowUpDate IS NOT NULL
+                                                               AND CAF.FollowUpDate <= CURRENT_DATE THEN 'No Response'
+                                                          WHEN CA.InsurancePolicyID IS NOT NULL THEN 'Pending insurance'
+                                                          ELSE 'Pending patient'
+                                                      END
+                    WHEN C.ClaimStatusCode = 'R' THEN CASE
+                                                          WHEN CA.ClaimTransactionID IS NULL THEN 'Unassigned'
+                                                          WHEN CA.InsurancePolicyID IS NULL THEN 'Ready to send statements'
+                                                          ELSE 'Ready to send claims'
+                                                      END
+                    ELSE '*** Undefined'
+                END AS Status
+FROM ${hive_global}.Claim${staging_suffix} C
+LEFT JOIN ${hive_global}.ClaimAccounting_Errors${staging_suffix} CE ON CE.PracticeID = c.PracticeID
+AND CE.ClaimID = c.ClaimID
+AND ce.partitioncustomerid=c.partitioncustomerid
+LEFT JOIN ${hive_global}.ClaimAccounting_Assignments${staging_suffix} CA ON C.PracticeID = CA.PracticeID
+AND CA.LastAssignment=1
+AND C.PatientID=CA.PatientID
+AND C.ClaimID=CA.ClaimID
+AND c.partitioncustomerid=ca.partitioncustomerid
+LEFT JOIN ${hive_global}.ClaimAccounting_FollowUp${staging_suffix} CAF ON CAF.PracticeID = C.PracticeID
+AND CAF.ClaimID = CA.ClaimID
+AND caf.partitioncustomerid=c.partitioncustomerid;
+
+
+CREATE TABLE IF NOT EXISTS LastActionData AS
+SELECT DISTINCT EDP.partitioncustomerid,
+                EDP.PracticeID,
+                EDP.ClaimID,
+                COALESCE(l.Code,'NA')LastAction,
+                cf.LastActionDate
+FROM CA_EEP as EDP
+JOIN ${hive_global}.ClaimStateFollowUp${staging_suffix} cf ON EDP.ClaimID = cf.ClaimID
+AND cf.partitioncustomerid=EDP.partitioncustomerid
+JOIN ${hive_global}.LastAction${staging_suffix} l ON l.LastActionID = cf.LastActionID
+AND l.partitioncustomerid=EDP.partitioncustomerid;
+
+
+CREATE TABLE IF NOT EXISTS AR_ASN_WIP AS
+SELECT edp.partitioncustomerid,
+       edp.PracticeID,
+       EDP.DoctorID,
+       EDP.patientID,
+       edp.EncounterID,
+       edp.ClaimID,
+       EDP.ProcedureDateOfService ServiceDate,
+       eDP.EncounterDate PostingDate,
+       edp.FirstBilledDate,
+       LastBilledDate,
+       EDP.LocationID ServiceLocationID,
+       PC.PayerScenarioID,
+       EDP.BatchID,
+       Status,
+       AdjustmentReasonCodes,
+       SUM(CASE WHEN edp.CLaimID IS NULL THEN CASE WHEN ClaimTransactionTypeCode = 'PAY'
+           AND edp.ca_PostingDate>CURRENT_DATE THEN 0 WHEN ClaimTransactionTypeCode = 'CST' THEN amount ELSE -1*Amount END ELSE 0 END)UnasgnAmount,
+       SUM(CASE WHEN edp.CLaimID IS NULL THEN 0 WHEN ClaimTransactionTypeCode='PAY'
+           AND PayerTypeCode='P' THEN 0 WHEN InsurancePolicyID IS NOT NULL THEN CASE WHEN ClaimTransactionTypeCode='CST' THEN AMOUNT ELSE -1*AMOUNT END ELSE 0 END)InsAmount,
+       SUM(CASE WHEN edp.CLaimID IS NULL THEN 0 WHEN ClaimTransactionTypeCode='PAY'
+           AND PayerTypeCode='P' THEN Amount*-1 WHEN InsurancePolicyID IS NULL THEN CASE WHEN ClaimTransactionTypeCode = 'CST' THEN Amount ELSE Amount*-1 END ELSE 0 END)PatAmount,
+       CASE
+           WHEN InsurancePolicyID IS NULL THEN 'P'
+           ELSE 'I'
+       END TypeCode,
+       la.LastAction,
+       la.LastActionDate,
+       edp.InsurancePolicyID,
+       edp.InsuranceCompanyPlanID,
+       edp.PlanName,
+       edp.InsuranceCompanyID,
+       edp.InsuranceCompanyName,
+       ProcedureCodeDictionaryID,
+       ProcedureModifier1,
+       ProcedureModifier2,
+       ProcedureModifier3,
+       ProcedureModifier4
+FROM CA_EEP as EDP
+LEFT JOIN ${hive_global}.Payment${staging_suffix} PMT ON PMT.PracticeID = edp.PracticeID
+AND PMT.PaymentID = edp.PaymentID
+AND EDP.partitioncustomerid=pmt.partitioncustomerid
+LEFT JOIN ClaimStatus AS cs ON cs.ClaimID = EDP.ClaimID
+AND cs.PracticeID = EDP.PracticeId
+AND cs.partitioncustomerid=EDP.partitioncustomerid
+LEFT JOIN LastActionData AS la ON la.ClaimID = EDP.ClaimID
+AND la.PracticeID = EDP.PracticeId
+AND la.partitioncustomerid=EDP.partitioncustomerid
+JOIN ${hive_global}.PatientCase${staging_suffix} pc ON pc.PracticeID = EDP.PracticeID
+AND pc.PatientCaseID = EDP.PatientCaseID
+AND pc.partitioncustomerid=EDP.partitioncustomerid
+WHERE edp.ca_PostingDate <=CURRENT_DATE
+  AND ClaimTransactionTypeCode IN ('PAY',
+                                   'ADJ',
+                                   'CST')
+GROUP BY edp.partitioncustomerid,
+         edp.PracticeID,
+         edp.DoctorID,
+         edp.EncounterID,
+         edp.ClaimID,
+         edp.ProcedureDateOfService,
+         edp.EncounterDate,
+         edp.FirstBilledDate,
+         LastBilledDate ,
+         EDP.LocationID,
+         PC.PayerScenarioID,
+         EDP.BatchID,
+         edp.patientID,
+         cs.Status,
+         AdjustmentReasonCodes ,
+         CASE
+             WHEN InsurancePolicyID IS NULL THEN 'P'
+             ELSE 'I'
+         END,
+         edp.InsurancePolicyID,
+         la.LastAction,
+         la.LastActionDate,
+         edp.InsuranceCompanyPlanID,
+         ProcedureCodeDictionaryID,
+         edp.PlanName,
+         edp.InsuranceCompanyID,
+         edp.InsuranceCompanyName,
+         ProcedureModifier1,
+         ProcedureModifier2,
+         ProcedureModifier3,
+         ProcedureModifier4;
+
+
+CREATE TABLE IF NOT EXISTS AR_ASN AS
+SELECT asn.*, (COALESCE(insAmount, 0) - COALESCE(ca.amount,0))insAmount_1, (COALESCE(PatAmount, 0) + COALESCE(ca.amount, 0))patAmount_1
+FROM AR_ASN_WIP asn
+LEFT JOIN
+  (SELECT ca.partitioncustomerid,
+          PracticeID,
+          ClaimID,
+          sum(Amount) Amount
+   FROM ${hive_global}.ClaimAccounting${staging_suffix} ca
+   WHERE ClaimTransactionTypeCode = 'PRC'
+     AND ca.PostingDate <=CURRENT_DATE
+   GROUP BY ca.partitioncustomerid,
+            ClaimID,
+            PracticeID) AS ca ON ca.ClaimID = asn.ClaimID
+AND ca.PracticeID=asn.PracticeID
+AND ca.partitioncustomerid=asn.partitioncustomerid
+AND TypeCode = 'I';
+
+
+CREATE TABLE IF NOT EXISTS RelevantBalanceTypeTransactions AS
+SELECT partitioncustomerId,
+       ClaimID,
+       max(ClaimTransactionID) AS ClaimTransactionID
+FROM ${hive_global}.ClaimAccounting_Assignments${staging_suffix}
+WHERE InsurancePolicyID IS NOT NULL
+GROUP BY ClaimID,
+         partitioncustomerId;
+
+
+CREATE TABLE IF NOT EXISTS Precedences AS
+SELECT partitioncustomerId,
+       ClaimID,
+       InsurancePolicyID,
+       Precedence,
+       ROW_NUMBER() OVER(PARTITION BY PartitionCustomerID, ClaimID, InsurancePolicyID
+                         ORDER BY Precedence ASC) AS RealPrecedence
+FROM
+  (SELECT RC.partitioncustomerid,
+          RC.ClaimID,
+          PI.InsurancePolicyID,
+          PI.Precedence
+   FROM ${hive_global}.Claim${staging_suffix} RC
+   LEFT JOIN ${hive_global}.EncounterProcedure${staging_suffix} EP ON EP.EncounterProcedureID = RC.EncounterProcedureID
+   AND EP.partitioncustomerid = RC.partitioncustomerid
+   INNER JOIN ${hive_global}.Encounter${staging_suffix} E ON E.EncounterID = EP.EncounterID
+   AND E.partitioncustomerid = EP.partitioncustomerid
+   INNER JOIN ${hive_global}.PatientCase${staging_suffix} PC ON PC.PatientCaseID = E.PatientCaseID
+   AND PC.partitioncustomerid = E.partitioncustomerid
+   LEFT OUTER JOIN ${hive_global}.InsurancePolicy${staging_suffix} PI ON PI.PatientCaseID = PC.PatientCaseID
+   AND PI.partitioncustomerid = PC.partitioncustomerid
+   AND PI.Active = 1
+   INNER JOIN ${hive_global}.InsuranceCompanyPlan${staging_suffix} IP ON IP.InsuranceCompanyPlanID = PI.InsuranceCompanyPlanID
+   AND IP.partitioncustomerid = PI.partitioncustomerid
+   LEFT JOIN ${hive_global}.InsuranceCompany${staging_suffix} IC ON IC.InsuranceCompanyID = IP.InsuranceCompanyID
+   AND IC.partitioncustomerid = IP.partitioncustomerid
+   WHERE PI.InsurancePolicyID IS NOT NULL
+     AND (PI.PolicyStartDate IS NULL
+          OR PI.PolicyStartDate <= EP.ProcedureDateOfService)
+     AND (PI.PolicyEndDate IS NULL
+          OR PI.PolicyEndDate >= EP.ProcedureDateOfService)
+   GROUP BY RC.ClaimID,
+            RC.partitioncustomerid,
+            PI.InsurancePolicyID,
+            PI.Precedence
+   UNION ALL SELECT RC.partitioncustomerid,
+                    RC.claimid,
+                    PI.InsurancePolicyID,
+                    PI.Precedence
+   FROM ${hive_global}.Claim${staging_suffix} RC
+   LEFT JOIN ${hive_global}.EncounterProcedure${staging_suffix} EP ON EP.EncounterProcedureID = RC.EncounterProcedureID
+   AND EP.partitioncustomerid = RC.partitioncustomerid
+   INNER JOIN ${hive_global}.Encounter${staging_suffix} E ON E.EncounterID = EP.EncounterID
+   AND E.partitioncustomerid = EP.partitioncustomerid
+   INNER JOIN ${hive_global}.PatientCase${staging_suffix} PC ON PC.PatientCaseID = E.PatientCaseID
+   AND PC.partitioncustomerid = E.partitioncustomerid
+   LEFT OUTER JOIN ${hive_global}.InsurancePolicy${staging_suffix} PI ON PI.PatientCaseID = PC.PatientCaseID
+   AND PI.partitioncustomerid = PC.partitioncustomerid
+   INNER JOIN ${hive_global}.InsuranceCompanyPlan${staging_suffix} IP ON IP.InsuranceCompanyPlanID = PI.InsuranceCompanyPlanID
+   AND IP.partitioncustomerid = PI.partitioncustomerid
+   LEFT JOIN ${hive_global}.InsuranceCompany${staging_suffix} IC ON IC.InsuranceCompanyID = IP.InsuranceCompanyID
+   AND IC.partitioncustomerid = IP.partitioncustomerid
+   WHERE PI.InsurancePolicyID IS NOT NULL
+     AND (PI.Active = 0
+          OR (pi.PolicyStartDate > ep.ProcedureDateOfService)
+          OR (pi.PolicyEndDate < ep.ProcedureDateOfService))
+   GROUP BY RC.ClaimID,
+            RC.partitioncustomerid,
+            PI.InsurancePolicyID,
+            PI.Precedence) tmpPrecedences;
+
+
+CREATE TABLE IF NOT EXISTS BalanceType AS
+SELECT CAA.partitioncustomerid,
+       CAA.ClaimID,
+       RBTT.ClaimTransactionID,
+       P.RealPrecedence,
+       CASE P.Precedence
+           WHEN '1' THEN 'Primary'
+           WHEN '2' THEN 'Secondary'
+           WHEN '3' THEN 'Tertiary'
+           ELSE 'Other'
+       END AS BalanceTypeStr
+FROM ${hive_global}.ClaimAccounting_Assignments${staging_suffix} CAA
+JOIN RelevantBalanceTypeTransactions RBTT ON CAA.ClaimTransactionID = RBTT.ClaimTransactionID
+AND CAA.partitioncustomerid = RBTT.partitioncustomerid
+LEFT JOIN Precedences P ON P.InsurancePolicyID = CAA.InsurancePolicyID
+AND P.ClaimID = RBTT.ClaimID
+AND P.partitioncustomerid = RBTT.partitioncustomerid
+ORDER BY CAA.ClaimID;
+
+
+CREATE TABLE IF NOT EXISTS ARSummary AS
+SELECT c.partitioncustomerid,
+       c.PracticeID,
+       DoctorID,
+       c.InsuranceCompanyPlanID,
+       PatientID,
+       EncounterID,
+       c.ClaimID,
+       c.ServiceDate,
+       c.PostingDate,
+       c.FirstBilledDate,
+       LastBilledDate,
+       c.ServiceLocationID,
+       c.PayerScenarioID,
+       c.BatchID,
+       c.PlanName,
+       c.InsuranceCompanyName,
+       CASE
+           WHEN c.FirstBilledDate IS NULL THEN c.insAmount_1
+           ELSE 0
+       END UnBilledCharges,
+       Status,
+       AdjustmentReasonCodes,
+       c.insAmount_1 ARAmount,
+       'Insurance' TypeGroup,
+                   1 TypeSort,
+                     ProcedureCodeDictionaryID,
+                     ProcedureModifier1,
+                     ProcedureModifier2,
+                     ProcedureModifier3,
+                     ProcedureModifier4,
+                     LastAction,
+                     LastActionDate,
+                     BT.BalanceTypeStr
+FROM AR_ASN c
+LEFT JOIN BalanceType BT ON BT.ClaimID = c.ClaimID
+AND BT.partitioncustomerid = c.partitioncustomerid
+WHERE c.insAmount_1 <> 0
+UNION ALL
+SELECT c.partitioncustomerid,
+       c.PracticeID,
+       DoctorID,
+       NULL AS InsuranceCompanyPlanID,
+               patientID,
+               EncounterID,
+               c.ClaimID,
+               c.ServiceDate,
+               c.PostingDate,
+               c.FirstBilledDate,
+               LastBilledDate,
+               c.ServiceLocationID,
+               c.PayerScenarioID,
+               c.BatchID,
+               c.PlanName,
+               c.InsuranceCompanyName,
+               CASE
+                   WHEN c.FirstBilledDate IS NULL THEN c.patAmount_1
+                   ELSE 0
+               END UnBilledCharges,
+               Status,
+               AdjustmentReasonCodes,
+               c.patAmount_1 ARAmount,
+               'Patient' TypeGroup,
+                         2 TypeSort,
+                           ProcedureCodeDictionaryID,
+                           ProcedureModifier1,
+                           ProcedureModifier2,
+                           ProcedureModifier3,
+                           ProcedureModifier4,
+                           LastAction,
+                           LastActionDate,
+                           BT.BalanceTypeStr
+FROM AR_ASN c
+LEFT JOIN BalanceType BT ON BT.ClaimID = c.ClaimID
+AND BT.partitioncustomerid = c.partitioncustomerid
+WHERE patAmount_1 <> 0;
+
+ALTER TABLE ${hive_etl}.ARSummary${etl_suffix} DROP PARTITION (partitioncustomerid > 0);
+
+CREATE TABLE IF NOT EXISTS NonZeroAR AS
+SELECT partitioncustomerid,
+       ClaimId
+FROM ARSummary
+GROUP BY partitioncustomerid,
+         ClaimId HAVING sum(ARAmount)<>0;
+
+
+INSERT OVERWRITE TABLE ${hive_etl}.ARSummary${etl_suffix} PARTITION(partitioncustomerid)
+SELECT r.partitioncustomerid AS CustomerID,
+       r.PracticeID,
+       r.DoctorID,
+       r.InsuranceCompanyPlanID,
+       r.PatientID,
+       r.EncounterID,
+       r.ClaimID,
+       r.ServiceDate,
+       r.PostingDate,
+       r.FirstBilledDate,
+       r.LastBilledDate,
+       r.ServiceLocationID,
+       r.PayerScenarioID,
+       r.BatchID,
+       r.PlanName,
+       r.InsuranceCompanyName,
+       r.UnBilledCharges,
+       r.Status,
+       r.AdjustmentReasonCodes,
+       r.ARAmount,
+       case when r.aramount < 0 then r.aramount else null end as Credits,
+       r.TypeGroup,
+       r.TypeSort,
+       r.ProcedureCodeDictionaryID,
+       pdc.ProcedureCode,
+       r.ProcedureModifier1,
+       r.ProcedureModifier2,
+       r.ProcedureModifier3,
+       r.ProcedureModifier4,
+       r.LastAction,
+       r.LastActionDate,
+       r.BalanceTypeStr,
+       r.partitioncustomerid
+FROM ARSummary r
+JOIN NonZeroAR n
+    ON r.ClaimId = n.claimId AND r.partitioncustomerid = n.partitioncustomerid
+LEFT JOIN ${hive_global}.ProcedureCodeDictionary${staging_suffix} pdc
+    ON pdc.ProcedureCodeDictionaryID=r.ProcedureCodeDictionaryID AND pdc.partitioncustomerid=r.partitioncustomerid
+DISTRIBUTE BY r.partitioncustomerid;
+
+CREATE TABLE IF NOT EXISTS ClaimPayments AS
+SELECT C.ClaimID,c.partitioncustomerid, C.PracticeId,C.EncounterProcedureID, c.ProviderID, c.ClaimTransactionID, c.ClaimTransactionTypeCode, c.ProcedureCount, c.Amount, c.ARAmount, c.ca_PostingDate AS CA_PostingDate,
+c.PaymentId, concat_ws(cast(c.paymentid as string),cast(c.partitioncustomerid as string),cast(c.practiceid as string))as concat
+FROM customer.vreportdataprovider_claim_claimaccounting${staging_suffix} AS C
+;
+
+CREATE TABLE IF NOT EXISTS concat_PID (PaymentID int, partitioncustomerid int, practiceid int, concat bigint);
+INSERT INTO concat_PID
+SELECT p.PaymentID, p.partitioncustomerid, p.practiceid, concat_ws(cast(p.paymentid as string),cast(p.partitioncustomerid as string),cast(p.practiceid as string))as concat
+FROM ${hive_global}.payment${staging_suffix} p;
+
+CREATE TABLE IF NOT EXISTS AppliedReceipts AS
+SELECT ca.partitioncustomerid,
+ca.practiceid,
+ca.PaymentID,
+SUM( case when ca.ca_postingDate <= CURRENT_DATE() then -1 * Amount else 0 end ) AppliedAmount
+FROM ClaimPayments AS ca
+WHERE (ca.ca_PostingDate <= CURRENT_DATE OR ca.ca_PostingDate <= CURRENT_DATE )
+AND ClaimTransactionTypeCode = 'PAY'
+GROUP BY ca.partitioncustomerid, ca.practiceid, ca.PaymentID;
+
+CREATE TABLE IF NOT EXISTS SummarizedUnapplied AS
+SELECT v.partitioncustomerid, V.PracticeID, PayerTypeCode, PayerID, SUM(PaymentAmount) AS PaymentAmount
+FROM (
+SELECT p.partitioncustomerid,
+P.PracticeID,
+PayerTypeCode,
+PayerID,
+SUM( COALESCE(PaymentAmount, 0) + COALESCE(a.AppliedAmount, 0) ) as PaymentAmount
+FROM customer.Payment${staging_suffix} P
+LEFT OUTER JOIN AppliedReceipts AS a ON a.PaymentID = p.PaymentID and a.partitioncustomerid=p.partitioncustomerid and a.practiceid=p.practiceid
+WHERE p.PostingDate <= CURRENT_DATE()
+GROUP BY p.partitioncustomerid, p.PayerID, p.PracticeID, payerTypeCode
+UNION ALL
+select p.partitioncustomerid, p.PracticeID, PayerTypeCode, p.PayerID, sum(-1 * rtp.amount)
+from customer.refund${staging_suffix} r
+INNER jOIn ${hive_global}.refundToPayments${staging_suffix} rtp on r.RefundID = rtp.RefundID and r.partitioncustomerid = rtp.partitioncustomerid
+INNER JOIN ${hive_global}.Payment${staging_suffix} p on p.practiceID = r.practiceID and p.partitioncustomerid = r.partitioncustomerid AND p.PaymentID = rtp.PaymentID
+WHERE rtp.PostingDate <= CURRENT_DATE()
+AND r.RefundStatusCode = 'I'
+group by p.partitioncustomerid, p.PayerID, p.PracticeID, payerTypeCode
+UNION ALL
+select p.partitioncustomerid, p.PracticeID, PayerTypeCode, PayerID, sum(-1 * rtp.amount)
+from ${hive_global}.CapitatedAccountToPayment${staging_suffix} rtp
+INNER JOIN ${hive_global}.Payment${staging_suffix} p on p.PaymentID = rtp.PaymentID and p.partitioncustomerid = rtp.partitioncustomerid
+WHERE rtp.PostingDate <= CURRENT_DATE()
+group by p.partitioncustomerid, p.PayerID, p.PracticeID, payerTypeCode
+) AS V
+LEFT JOIN ${hive_global}.InsuranceCompanyPlan${staging_suffix} icp ON icp.InsuranceCompanyPlanID = v.PayerID AND v.PayerTypeCode = 'I' and icp.partitioncustomerid = v.partitioncustomerid
+GROUP BY v.partitioncustomerid, V.PracticeID, PayerID,PayerTypeCode;
+
+DROP TABLE IF EXISTS ${hive_etl}.UnappliedResults${etl_suffix};
+
+CREATE TABLE IF NOT EXISTS ${hive_etl}.UnappliedResults${etl_suffix} AS
+SELECT su.partitioncustomerid,
+su.practiceid,
+sum(su.paymentamount)as PaymentAmount
+FROM SummarizedUnapplied SU
+LEFT OUTER JOIN ${hive_etl}.ARSummary${etl_suffix} RR ON RR.TypeGroup = su.payertypecode
+WHERE RR.TypeGroup IS NULL
+group by su.partitioncustomerid,su.practiceid;
+
+DROP TABLE IF EXISTS ASNMax;
+DROP TABLE IF EXISTS ARCodes;
+DROP TABLE IF EXISTS ASN;
+DROP TABLE IF EXISTS CA;
+DROP TABLE IF EXISTS EEP;
+DROP TABLE IF EXISTS CA_EEP;
+DROP TABLE IF EXISTS ClaimStatus;
+DROP TABLE IF EXISTS LastActionData;
+DROP TABLE IF EXISTS AR_ASN_WIP;
+DROP TABLE IF EXISTS AR_ASN;
+DROP TABLE IF EXISTS RelevantBalanceTypeTransactions;
+DROP TABLE IF EXISTS Precedences;
+DROP TABLE IF EXISTS BalanceType;
+DROP TABLE IF EXISTS NonZeroAR;
+DROP TABLE IF EXISTS ARSummary;
+DROP TABLE IF EXISTS SummarizedUnapplied;
+DROP TABLE IF EXISTS AppliedReceipts;
+DROP TABLE IF EXISTS concat_PID;
+DROP TABLE IF EXISTS ClaimPayments;

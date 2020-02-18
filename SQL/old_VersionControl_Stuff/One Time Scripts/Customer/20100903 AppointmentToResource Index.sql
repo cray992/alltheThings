@@ -1,0 +1,3 @@
+CREATE INDEX NCI_AppointmentToResource_ResourceID_AppointmentResourceTypeID_PracticeID_INC_AppointmentID
+ON AppointmentToResource (ResourceID, AppointmentResourceTypeID, PracticeID)
+INCLUDE (AppointmentID)

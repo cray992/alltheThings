@@ -1,0 +1,337 @@
+/*ANNUAL CODE UPDATES 2019 (SharedServer)*/
+
+/***====================================================================================================***/
+/*											GCPI 2019													  */
+/***====================================================================================================***/
+
+-------------------------------------------------------------------------------------------------------------
+
+USE superbill_shared
+GO
+
+SET XACT_ABORT ON
+BEGIN TRANSACTION
+--rollback
+--commit
+
+SET NOCOUNT ON
+
+--create batchID for 2019
+PRINT ''
+PRINT 'Inserting into MedicareFeeScheduleGPCIBatch...'
+INSERT INTO dbo.MedicareFeeScheduleGPCIBatch
+(
+    EffectiveStart
+)
+Values
+(  CONVERT (DATETIME, '2019-01-01') -- EffectiveStart - datetime 
+)
+PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+	
+--INSERT NEW GCPI
+PRINT ''
+PRINT 'Inserting into MedicareFeeScheduleGPCI...'
+INSERT INTO dbo.MedicareFeeScheduleGPCI
+(
+    MedicareFeeScheduleGPCIBatchID,
+    Carrier,
+    Locality,
+    LocalityName,
+    WorkGPCI,
+    PracticeExpenseGPCI,
+    MalpracticeExpenseGPCI
+)
+SELECT DISTINCT	
+    b.MedicareFeeScheduleGPCIBatchID,   -- MedicareFeeScheduleGPCIBatchID - int
+    i.carrier,   -- Carrier - int
+    i.locality,   -- Locality - int
+    i.localityName,  -- LocalityName - varchar(128)
+    i.workGPCI, -- WorkGPCI - float
+    i.PracticeExpenseGPCI, -- PracticeExpenseGPCI - float
+    i.MalpracticeExpenseGPCI  -- MalpracticeExpenseGPCI - float
+	--select *
+    FROM SHAREDSERVER.DataCollection.dbo.[GPCI2019$] i 
+	JOIN dbo.MedicareFeeScheduleGPCIBatch b ON b.EffectiveStart = CONVERT (DATETIME, '2019-01-01')
+ PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+
+ --SELECT * FROM dbo.MedicareFeeScheduleGPCIBatch
+ --SELECT * FROM dbo.MedicareFeeScheduleGPCI
+ --WHERE MedicareFeeScheduleGPCIBatchID NOT BETWEEN 1 AND 9
+
+/***====================================================================================================***/
+/*											LocalityZip 2019											  */
+/***====================================================================================================***/
+
+-------------------------------------------------------------------------------------------------------------
+
+USE superbill_shared
+GO
+
+SET XACT_ABORT ON
+BEGIN TRANSACTION
+--rollback
+--commit
+
+SET NOCOUNT ON
+
+--create batchID for 2019
+PRINT ''
+PRINT 'Inserting into MedicareFeeScheduleZipGPCILinkBatch...'
+INSERT INTO dbo.MedicareFeeScheduleZipGPCILinkBatch
+(
+    EffectiveStart
+)
+VALUES
+( CONVERT (DATETIME, '2019-01-01')  -- EffectiveStart - datetime
+    )
+PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+
+--INSERT NEW ZIPCODE
+PRINT ''
+PRINT 'Inserting into MedicareFeeScheduleZipGPCILink...'
+INSERT INTO dbo.MedicareFeeScheduleZipGPCILink
+(
+    MedicareFeeScheduleZipGPCILinkBatchID,
+    ZipCode,
+    Carrier,
+    Locality
+)
+SELECT distinct
+    b.MedicareFeeScheduleZipGPCILinkBatchID,  -- MedicareFeeScheduleZipGPCILinkBatchID - int
+    i.[ZIP CODE], -- ZipCode - char(5)
+    i.carrier,  -- Carrier - int
+    i.locality   -- Locality - int
+	--SELECT *
+FROM SHAREDSERVER.DataCollection.dbo.[LocalityZip2019$] i 
+JOIN dbo.MedicareFeeScheduleZipGPCILinkBatch b ON b.EffectiveStart = CONVERT (DATETIME, '2019-01-01')
+WHERE i.[zip code] IS NOT NULL
+ PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+
+
+--SELECT * FROM dbo.MedicareFeeScheduleZipGPCILinkBatch
+--SELECT * FROM dbo.MedicareFeeScheduleZipGPCILink
+--WHERE MedicareFeeScheduleZipGPCILinkBatchID NOT BETWEEN 1 AND 8
+
+
+/***====================================================================================================***/
+/*											RVU Code 2019												  */
+/***====================================================================================================***/
+
+----------------------------------------------------------------------------------------------------------
+USE superbill_shared
+GO
+
+SET XACT_ABORT ON
+BEGIN TRANSACTION
+--rollback
+--commit
+
+SET NOCOUNT ON
+
+--INSERT NEW RVU BATCH
+PRINT ''
+PRINT 'Inserting into MedicareFeeScheduleRVUBatch...'
+INSERT INTO dbo.MedicareFeeScheduleRVUBatch
+(
+    ConversionFactor,
+    BudgetNeutralityAdjustor,
+    EffectiveStart
+)
+SELECT DISTINCT
+	i.conv_factor,      -- ConversionFactor - float
+	1,      -- BudgetNeutralityAdjustor - float
+	CONVERT (DATETIME, '2019-01-01') -- EffectiveStart - datetime
+	--select *
+    FROM SHAREDSERVER.DataCollection.dbo.[rvu2019$] i
+ PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+
+--INSERT NEW RVU
+PRINT ''
+PRINT 'Inserting into MedicareFeeScheduleRVU...'
+INSERT INTO dbo.MedicareFeeScheduleRVU
+(
+    MedicareFeeScheduleRVUBatchID,
+    ProcedureCode,
+    Modifier,
+    WorkRVU,
+    FacilityPracticeExpenseRVU,
+    NonFacilityPracticeExpenseRVU,
+    MalpracticeExpenseRVU
+)
+SELECT DISTINCT
+    b.MedicareFeeScheduleRVUBatchID,   -- MedicareFeeScheduleRVUBatchID - int
+    i.procedure_code,  -- ProcedureCode - varchar(16)
+    i.modifier,  -- Modifier - varchar(16)
+    i.work_rvu, -- WorkRVU - float
+    i.facility_practice_expenseRVU, -- FacilityPracticeExpenseRVU - float
+    i.nonfacility_practice_expenseRVU, -- NonFacilityPracticeExpenseRVU - float
+    i.malpractice_expense_RVU  -- MalpracticeExpenseRVU - float
+	--select *
+FROM SHAREDSERVER.DataCollection.dbo.[rvu2019$] i
+JOIN dbo.MedicareFeeScheduleRVUBatch b ON b.EffectiveStart = CONVERT (DATETIME, '2019-01-01')
+ PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+
+
+ SELECT * FROM dbo.MedicareFeeScheduleRVUBatch
+ SELECT * FROM dbo.MedicareFeeScheduleRVU
+ WHERE MedicareFeeScheduleRVUBatchID NOT BETWEEN 1 AND 8
+
+
+--Cleaned up data
+-- USE superbill_shared
+--GO
+
+--SET XACT_ABORT ON
+--BEGIN TRANSACTION
+----rollback
+----commit
+
+--SET NOCOUNT ON
+
+----INSERT NEW RVU BATCH
+--PRINT ''
+--PRINT 'Deleting MedicareFeeScheduleRVU with batchID 9...'
+--DELETE FROM dbo.MedicareFeeScheduleRVU 
+--WHERE MedicareFeeScheduleRVUBatchID = 9
+-- PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records deleted '
+
+-- SELECT * FROM dbo.MedicareFeeScheduleRVU
+-- WHERE MedicareFeeScheduleRVUBatchID = 9
+
+--Deleting MedicareFeeScheduleRVU with batchID 9...
+--16638 records deleted 
+
+ /***====================================================================================================***/
+/*											RARC 2019													  */
+/***====================================================================================================***/
+----------------------------------------------------------------------------------------------------------
+USE superbill_shared
+GO
+
+SET XACT_ABORT ON
+BEGIN TRANSACTION
+--rollback
+--commit
+
+SET NOCOUNT ON
+
+--INSERT NEW MODIFIERS
+PRINT ''
+PRINT 'Inserting into RemittanceRemark...'
+INSERT INTO dbo.RemittanceRemark
+(
+    RemittanceCode,
+    RemittanceDescription,
+    RemittanceNotes,
+    CreatedDate,
+    CreatedUserID,
+    ModifiedDate,
+    ModifiedUserID
+)
+SELECT distinct
+    i.remittanceid,       -- RemittanceCode - nvarchar(5)
+    i.description,       -- RemittanceDescription - nvarchar(2000)
+    i.notes,       -- RemittanceNotes - nvarchar(100)
+    GETDATE(), -- CreatedDate - datetime
+    0,         -- CreatedUserID - int
+    GETDATE(), -- ModifiedDate - datetime
+    0         -- ModifiedUserID - int
+	--select *
+	FROM SHAREDSERVER.DataCollection.dbo.[RARC2019$] i
+	LEFT JOIN dbo.RemittanceRemark r ON i.remittanceid = r.RemittanceCode
+	WHERE r.RemittanceID IS null
+ PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+
+
+ --SELECT * FROM dbo.RemittanceRemark
+
+
+USE superbill_69782_prod
+GO
+--SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED
+
+--Testing on one customer
+SET XACT_ABORT ON
+BEGIN TRANSACTION
+--rollback
+--commit
+
+SET NOCOUNT ON
+
+----DELETE CODE
+PRINT ''
+PRINT 'Update ICD10DiagnosisCodeDictionary (deactivate code)...'
+UPDATE dbo.ProcedureCodeDictionary
+SET Active = 0
+--SELECT *
+FROM dbo.ICD10DiagnosisCodeDictionary d
+JOIN SHAREDSERVER.DataCollection.dbo.icd10cm_order_2020$ i ON i.CODE = d.DiagnosisCode 
+PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records updated '
+
+--SELECT active, * FROM dbo.ProcedureCodeDictionary d
+--JOIN SHAREDSERVER.DataCollection.dbo.[CPTDeletedCodes2019$] i ON i.CODE = d.ProcedureCode 
+
+ --Update CODE
+ PRINT ''
+PRINT 'Updating ICD10DiagnosisCodeDictionary...'
+UPDATE dbo.ProcedureCodeDictionary
+SET OfficialDescription = LEFT(i.officialname,300)
+--, LocalName = LEFT(i.localname,100)
+--select top 100 i.code,d.diagnosiscode 
+FROM SHAREDSERVER.DataCollection.dbo.icd10cm_order_2020$ i
+JOIN dbo.ICD10DiagnosisCodeDictionary d ON i.code = d.DiagnosisCode
+ PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records update '
+ 
+
+//////////////////////////////////////////////////////
+-------ICD10DiagnosisCodeDictionary------
+  --INSERT NEW CODE
+ PRINT ''
+PRINT 'Inserting into ICD10DiagnosisCodeDictionary...'
+INSERT INTO dbo.ICD10DiagnosisCodeDictionary
+(
+    DiagnosisCode,
+    CreatedDate,
+    CreatedUserID,
+    ModifiedDate,
+    ModifiedUserID,
+   -- TypeOfServiceCode,
+    Active,
+    OfficialName
+	--LocalName,
+    --CustomCode
+)
+SELECT DISTINCT
+   i.code,        -- ProcedureCode - varchar(16)
+    GETDATE(), -- CreatedDate - datetime
+    0,         -- CreatedUserID - int
+    GETDATE(), -- ModifiedDate - datetime
+    0,         -- ModifiedUserID - int
+    --i.[TOS Code],        -- TypeOfServiceCode - char(1)
+    1,      -- Active - bit
+    LEFT(i.OfficialName,300)        -- OfficialName - varchar(300)
+	--LEFT(i.localname,100),
+  --  0       -- CustomCode - bit
+	--select * --from dbo.ProcedureCodeDictionary ORDER BY ProcedureCode --WHERE ProcedureCode = 'a00'
+    FROM SHAREDSERVER.DataCollection.dbo.icd10cm_order_2020$ i 
+	LEFT JOIN dbo.ICD10DiagnosisCodeDictionary p ON i.CODE = p.DiagnosisCode
+	WHERE p.DiagnosisCode IS null
+ PRINT CAST (@@ROWCOUNT AS VARCHAR(10)) + ' records inserted '
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

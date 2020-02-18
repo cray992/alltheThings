@@ -1,0 +1,1 @@
+ALTER TABLE encounter ALTER COLUMN Box19 varchar(51)

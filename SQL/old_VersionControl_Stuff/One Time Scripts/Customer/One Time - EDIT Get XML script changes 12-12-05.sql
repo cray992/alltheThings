@@ -1,0 +1,3033 @@
+SET QUOTED_IDENTIFIER ON 
+GO
+SET ANSI_NULLS ON 
+GO
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE xtype='P' AND name='BillDataProvider_GetEDIBillXML')
+	DROP PROCEDURE BillDataProvider_GetEDIBillXML
+GO
+
+--===========================================================================
+-- GET EDI BILL XML
+--===========================================================================
+CREATE  PROCEDURE dbo.BillDataProvider_GetEDIBillXML
+	@batch_id INT,
+	@bill_id INT
+AS
+BEGIN
+
+	IF (@bill_id < 1)
+	BEGIN
+		SELECT TOP 1 @bill_id = BillID FROM Bill_EDI BE ORDER BY BillID DESC
+		PRINT @bill_id
+	END
+
+	IF (@batch_id < 1)
+		SELECT @batch_id = BillBatchID FROM Bill_EDI BE WHERE BillID = @bill_id
+
+	-- some variables that can be overridden for specific payers:
+	DECLARE @loop2310Bqual int
+	DECLARE @loop2310Btaxid varchar(30)
+	SET @loop2310Bqual = 34			-- means SSN, while some payers require TIN with qualifier 24 (case 5477)
+
+	DECLARE @loop2010BB2U varchar(30)	-- case 5492
+
+	-- get values that go into the header from shared DB:
+	DECLARE @customer_id INT
+
+	SELECT @customer_id = CustomerID FROM Master..SysDatabases SDB INNER JOIN SysFiles SF 
+	ON SDB.FileName=SF.FileName
+	INNER JOIN Superbill_Shared..Customer C ON SDB.Name=C.DatabaseName
+
+	DECLARE @ClearinghouseConnectionId INT
+	DECLARE @ProductionFlag INT
+	DECLARE @SubmitterName VARCHAR(100)
+	DECLARE @SubmitterEtin VARCHAR(100)
+	DECLARE @SubmitterContactName VARCHAR(100)
+	DECLARE @SubmitterContactPhone VARCHAR(100)
+	DECLARE @SubmitterContactEmail VARCHAR(100)
+	DECLARE @SubmitterContactFax VARCHAR(100)
+	DECLARE @ReceiverName VARCHAR(100)
+	DECLARE @ReceiverEtin VARCHAR(100)
+
+	SELECT  @ClearinghouseConnectionID = C.ClearinghouseConnectionID,
+		@ProductionFlag = ProductionFlag,
+		@SubmitterName = SubmitterName,
+		@SubmitterEtin = SubmitterEtin,
+		@SubmitterContactName = SubmitterContactName,
+		@SubmitterContactPhone = SubmitterContactPhone,
+		@SubmitterContactEmail = SubmitterContactEmail,
+		@SubmitterContactFax = SubmitterContactFax,
+		@ReceiverName = ReceiverName,
+		@ReceiverEtin = ReceiverEtin
+	FROM Superbill_Shared..Customer C
+		 JOIN Superbill_Shared..ClearinghouseConnection CC ON CC.ClearinghouseConnectionID = C.ClearinghouseConnectionID
+	WHERE C.CustomerID = @customer_id
+
+	-- if Clearinghouse Connection is not set up, we return here.
+	-- Broker Server knows to throw friendly exception message when empty XML comes out of here:
+	IF (@SubmitterEtin IS NULL)
+		return;
+
+	-- to have Loop 2000A filled with Group Numbers, we need RC.LocationID and ICP.InsuranceCompanyPlanID.
+	-- also, get some other parameters into variables:
+
+	DECLARE @PracticeID INT
+	DECLARE @PatientID INT
+	DECLARE @RepresentativeClaimID INT
+	DECLARE @RepresentativeEncounterID INT
+	DECLARE @LocationID INT
+	DECLARE @InsuranceCompanyPlanID INT
+	DECLARE @PlanName VARCHAR(256)			-- something like 'Medicare Part B of Arizona' from ICP
+	DECLARE @PayerName VARCHAR(256)			-- something like 'MEDICARE ARIZONA' - NameTransmitted from CPL
+	DECLARE @PayerNumber VARCHAR(30)		-- something like 'MR049'
+	DECLARE @InsuranceProgramCode CHAR(2)		-- something like 'CI' for SBR09
+	DECLARE @RoutingPreference VARCHAR(500)
+	DECLARE @ReferringProviderIdQualifier CHAR(2)	-- G2, 1D, 1B additional provider number qualifier depends on insurance type 
+
+	SET @RoutingPreference = 'PROXYMED'
+	SET @ReferringProviderIdQualifier = 'G2'
+
+	SELECT TOP 1 
+		@PracticeID = P.PracticeID,
+		@PatientID = P.PatientID,
+		@RepresentativeClaimID = B.RepresentativeClaimID,
+		@RepresentativeEncounterID = E.EncounterID,
+		@LocationID = E.LocationID,
+		@InsuranceCompanyPlanID = ICP.InsuranceCompanyPlanID,
+--		@InsuranceProgramCode = ISNULL(P.InsuranceProgramCode,IC.InsuranceProgramCode),
+		@InsuranceProgramCode = IC.InsuranceProgramCode,
+		@PlanName = ICP.PlanName,
+		@PayerName = CPL.NameTransmitted,
+		@PayerNumber = CPL.PayerNumber
+	FROM	Bill_EDI B
+		INNER JOIN Claim RC
+		ON RC.ClaimID = B.RepresentativeClaimID
+		INNER JOIN ClaimAccounting_Assignments CA
+		ON RC.PracticeID = CA.PracticeID AND CA.ClaimID = RC.ClaimID AND CA.LastAssignment = 1 AND CA.InsurancePolicyID IS NOT NULL
+		INNER JOIN dbo.EncounterProcedure EP
+		ON EP.EncounterProcedureID = RC.EncounterProcedureID
+		INNER JOIN dbo.Encounter E
+			ON E.EncounterID = EP.EncounterID
+		INNER JOIN Patient P
+		ON P.PatientID = RC.PatientID
+			INNER JOIN InsurancePolicy PI
+			ON PI.InsurancePolicyID = B.PayerInsurancePolicyID
+			INNER JOIN InsuranceCompanyPlan ICP
+				INNER JOIN InsuranceCompany IC 
+				ON ICP.InsuranceCompanyID = IC.InsuranceCompanyID
+				LEFT OUTER JOIN ClearinghousePayersList CPL
+				ON IC.ClearinghousePayerID = CPL.ClearinghousePayerID
+			ON ICP.InsuranceCompanyPlanID = PI.InsuranceCompanyPlanID
+	WHERE	B.BillID = @bill_id
+
+	-- get those group numbers into a temp table so that tweaking them is easy. They are sorted and duplicates removed:
+
+	DECLARE @t_groupnumbers Table(TID int identity(1,1),
+		 ANSIReferenceIdentificationQualifier varchar(10),
+		 GroupNumber varchar(50),
+		 LocationID int,
+		 InsuranceCompanyPlanID int)
+
+	INSERT INTO @t_groupnumbers (ANSIReferenceIdentificationQualifier, GroupNumber, LocationID, InsuranceCompanyPlanID)
+		SELECT GNT.ANSIReferenceIdentificationQualifier, PIGN.GroupNumber, PIGN.LocationID, PIGN.InsuranceCompanyPlanID
+		FROM	PracticeInsuranceGroupNumber PIGN
+			INNER JOIN GroupNumberType GNT
+			ON GNT.GroupNumberTypeID = PIGN.GroupNumberTypeID
+		WHERE	PIGN.PracticeID = @PracticeID
+			AND PIGN.AttachConditionsTypeID IN (1, 3)
+			AND (
+			     PIGN.InsuranceCompanyPlanID IS NULL
+				 OR
+			     PIGN.InsuranceCompanyPlanID = @InsuranceCompanyPlanID
+			)
+			-- loop 2010AA, page 92 of 837.pdf:
+			AND GNT.ANSIReferenceIdentificationQualifier IN
+				('0B','1A','1B','1C','1D','1G','1H','1J','B3','BQ','EI','FH','G2','G5','LU','SY','U3','X5','SN','SM','RN','RM')
+			AND (PIGN.LocationID IS NULL OR PIGN.LocationID = @LocationID)
+		ORDER BY ANSIReferenceIdentificationQualifier, InsuranceCompanyPlanID DESC, LocationID DESC
+
+	DELETE @t_groupnumbers
+	FROM @t_groupnumbers TN LEFT JOIN
+	 (SELECT ANSIReferenceIdentificationQualifier, MIN(TID) TID
+	  FROM @t_groupnumbers GROUP BY ANSIReferenceIdentificationQualifier) FilteredTN 
+	  ON TN.TID=FilteredTN.TID
+	  WHERE FilteredTN.TID IS NULL
+
+	DECLARE @SubmitterNameOverride VARCHAR(100)
+	DECLARE @SubmitterEtinOverride VARCHAR(100)
+	DECLARE @ReceiverNameOverride VARCHAR(100)
+	DECLARE @ReceiverEtinOverride VARCHAR(100)
+	
+	SELECT 	@SubmitterNameOverride = GroupNumber FROM @t_groupnumbers WHERE ANSIReferenceIdentificationQualifier = 'SM'
+	SELECT 	@SubmitterEtinOverride = GroupNumber FROM @t_groupnumbers WHERE ANSIReferenceIdentificationQualifier = 'SN'
+	SELECT 	@ReceiverNameOverride = GroupNumber FROM @t_groupnumbers WHERE ANSIReferenceIdentificationQualifier = 'RM'
+	SELECT 	@ReceiverEtinOverride = GroupNumber FROM @t_groupnumbers WHERE ANSIReferenceIdentificationQualifier = 'RN'
+
+	IF (@SubmitterNameOverride IS NOT NULL)
+		SET @SubmitterName = @SubmitterNameOverride
+
+	IF (@SubmitterEtinOverride IS NOT NULL)
+		SET @SubmitterEtin = @SubmitterEtinOverride
+
+	IF (@ReceiverNameOverride IS NOT NULL)
+		SET @ReceiverName = @ReceiverNameOverride
+
+	IF (@ReceiverEtinOverride IS NOT NULL)
+		SET @ReceiverEtin = @ReceiverEtinOverride
+
+	DELETE @t_groupnumbers WHERE ANSIReferenceIdentificationQualifier IN ('SM', 'SN', 'RM', 'RN')
+
+	-- same way, get individual provider numbers into a temp table so that tweaking them is easy. Also sorted and duplicates removed:
+
+	DECLARE @t_providernumbers Table(TID int identity(1,1),
+		 ANSIReferenceIdentificationQualifier varchar(10),
+		 ProviderNumber varchar(50),
+		 LocationID int,
+		 InsuranceCompanyPlanID int,
+		 PayerInsurancePolicyID int,
+		 ProviderNumberID int
+		 )
+
+	INSERT INTO @t_providernumbers (ANSIReferenceIdentificationQualifier, ProviderNumber, LocationID, InsuranceCompanyPlanID, PayerInsurancePolicyID, ProviderNumberID)
+		SELECT PNT.ANSIReferenceIdentificationQualifier, PN.ProviderNumber, PN.LocationID, PN.InsuranceCompanyPlanID, B.PayerInsurancePolicyID, PN.ProviderNumberID
+		FROM	Bill_EDI B
+			INNER JOIN Claim RC
+			ON RC.ClaimID = B.RepresentativeClaimID
+			INNER JOIN ClaimAccounting_Assignments CA
+			ON RC.PracticeID = CA.PracticeID AND CA.ClaimID = RC.ClaimID AND CA.LastAssignment = 1 AND CA.InsurancePolicyID IS NOT NULL
+			INNER JOIN dbo.EncounterProcedure EP
+			ON EP.EncounterProcedureID = RC.EncounterProcedureID
+			INNER JOIN dbo.Encounter E
+			ON E.EncounterID = EP.EncounterID
+			INNER JOIN InsurancePolicy PI
+			ON PI.InsurancePolicyID = B.PayerInsurancePolicyID
+			INNER JOIN InsuranceCompanyPlan ICP
+			ON ICP.InsuranceCompanyPlanID = PI.InsuranceCompanyPlanID
+			INNER JOIN Doctor D
+			ON D.DoctorID = E.DoctorID
+			INNER JOIN ProviderNumber PN
+			ON PN.DoctorID = D.DoctorID 
+			INNER JOIN ProviderNumberType PNT
+			ON PN.ProviderNumberTypeID = PNT.ProviderNumberTypeID
+		WHERE	B.BillID = @bill_id
+			AND PN.AttachConditionsTypeID IN (1, 3)
+			-- loop 2310B, pages 296-297 of 837.pdf:
+			AND  PNT.ANSIReferenceIdentificationQualifier IN ('0B','1B','1C','1D','1G','1H','G2','EI','LU','N5','SY','X5','Z0','Z1','G5')
+			AND (PN.InsuranceCompanyPlanID IS NULL OR PN.InsuranceCompanyPlanID = ICP.InsuranceCompanyPlanID)
+			AND (PN.LocationID IS NULL OR PN.LocationID = E.LocationID)
+		ORDER BY PNT.ANSIReferenceIdentificationQualifier, PN.InsuranceCompanyPlanID DESC, PN.LocationID DESC
+	
+	DELETE @t_providernumbers
+	FROM @t_providernumbers TN LEFT JOIN
+	 (SELECT ANSIReferenceIdentificationQualifier, MIN(TID) TID
+	  FROM @t_providernumbers GROUP BY ANSIReferenceIdentificationQualifier) FilteredTN 
+	  ON TN.TID=FilteredTN.TID
+	  WHERE FilteredTN.TID IS NULL
+
+	------------------------------------------------------------------------------------------------------
+	-- do whatever is needed to accommodate payer-specific requirements for this envelope:
+
+	-- case 5620:
+	IF (@PayerNumber = 'BS029')
+ 	    DELETE @t_providernumbers WHERE ANSIReferenceIdentificationQualifier = '1G'
+
+	-- case 5498:
+	IF (@PayerNumber LIKE 'BS%')
+		DELETE @t_providernumbers WHERE ANSIReferenceIdentificationQualifier IN  ('1C', '1D', '1H') 
+
+	IF (@PayerNumber LIKE 'MR%')
+		DELETE @t_providernumbers WHERE ANSIReferenceIdentificationQualifier IN  ('1B', '1D', '1H') 
+
+	-- case 5477, 6039, and also RoguePayers list for Noridian payers:
+	IF (@PayerNumber IN ('MR034', 'MR036', 'MR084', 'MR083', 'MR004', 'MR074', 'MR006', 'MR010', 'MR011', 'MR008', 'MR007', 'MR057', 'BS074', 'BS057', 'MC026', 'BS003'))
+	BEGIN
+		SET @loop2310Bqual = 24
+		SELECT 	@loop2310Btaxid = ProviderNumber FROM @t_providernumbers WHERE ANSIReferenceIdentificationQualifier = 'EI'
+	END
+
+	-- case 5492:
+	IF (@PlanName LIKE 'BC/BS OF SOUTH CAROLINA-%')
+		SET @loop2010BB2U=SUBSTRING(@PlanName,CHARINDEX('-',@PlanName)+1,3)
+
+/*
+	IF (@PlanName LIKE 'BC/BS OF SOUTH CAROLINA-130%')
+		SET @loop2010BB2U = '130'
+
+	IF (@PlanName LIKE 'BC/BS OF SOUTH CAROLINA-400%')
+		SET @loop2010BB2U = '400'
+
+	............
+*/
+
+	-- case 5840:
+	IF (@PayerNumber = 'MC024')
+ 	    DELETE @t_providernumbers WHERE ANSIReferenceIdentificationQualifier NOT IN  ('1D', 'Z0', 'Z1', 'EI')
+
+
+	-- case 7865:
+	IF (@PayerNumber LIKE 'MC%')
+	    SET @ReferringProviderIdQualifier = '1D'
+
+	IF (@PayerNumber LIKE 'BS%')
+	    SET @ReferringProviderIdQualifier = '1B'
+
+	IF (@PayerNumber LIKE 'MB%')
+	    SET @ReferringProviderIdQualifier = '1C'
+
+
+	------------------------------------------------------------------------------------------------------
+	-- individual billers supply PRV in loop 2000A and do not have Loop 2310B:
+	-- (case 6018):
+
+	DECLARE @IndBillerYes VARCHAR(256)	-- something like 'yes' - tested for presense only
+	DECLARE @IndBillerSSN VARCHAR(32)	-- for qualifier 34
+	DECLARE @IndBillerEIN VARCHAR(32)	-- for qualifier 24
+	DECLARE @IndBillerQual VARCHAR(2)	-- actual qualifier 24 or 34
+	DECLARE @BillerType VARCHAR(1)		-- biller type for loop  2010AA, 1(indiv) or 2(group)
+
+	SET @BillerType = '2'		-- default is group
+	SET @IndBillerQual = '24'	-- default is EIN
+
+	-- we may just use EI to override Practice EIN, even if Ind Biller is not intended:
+	SELECT 	@IndBillerEIN = ProviderNumber FROM @t_providernumbers
+			 WHERE ANSIReferenceIdentificationQualifier = 'EI'
+
+	-- supplying Z0 turns individual billing mode on
+	SELECT 	@IndBillerYes = ProviderNumber FROM @t_providernumbers
+			 WHERE ANSIReferenceIdentificationQualifier = 'Z0'
+
+	IF (@IndBillerYes IS NOT NULL )
+	BEGIN
+		-- we are billing for individual provider, loops 2000, 2010AA and 2310BB are affected
+
+		SET @BillerType = '1'
+
+		SELECT 	@IndBillerSSN = ProviderNumber FROM @t_providernumbers
+			 WHERE ANSIReferenceIdentificationQualifier = 'Z1'
+	
+		IF (@IndBillerSSN IS NOT NULL )
+		BEGIN
+			SET @IndBillerQual = '34'		-- indicated that SSN is used here
+			SET @IndBillerEIN = @IndBillerSSN
+		END
+
+		-- group numbers don't matter any more, we need individual numbers instead:
+		DELETE @t_groupnumbers
+
+		INSERT INTO @t_groupnumbers (ANSIReferenceIdentificationQualifier, GroupNumber, LocationID, InsuranceCompanyPlanID)
+			SELECT ANSIReferenceIdentificationQualifier, ProviderNumber, LocationID, InsuranceCompanyPlanID
+			FROM	@t_providernumbers
+
+	END
+
+	-- @IndBillerEIN can be still NULL here, if no Practice EIN override is intended
+
+	DELETE @t_groupnumbers WHERE ANSIReferenceIdentificationQualifier IN  ('Z0', 'Z1') 
+	DELETE @t_providernumbers WHERE ANSIReferenceIdentificationQualifier IN  ('Z0', 'Z1') 
+	IF (@PayerNumber <> 'BS028')
+	BEGIN
+	    DELETE @t_groupnumbers WHERE ANSIReferenceIdentificationQualifier IN  ('EI') 
+	    DELETE @t_providernumbers WHERE ANSIReferenceIdentificationQualifier IN  ('EI') 
+	END
+
+	------------------------------------------------------------------------------------------------------
+
+	-- list all claims in the bill:
+	SELECT C.ClaimID
+	INTO #ClaimBatch
+	FROM	Bill_EDI B	
+		INNER JOIN Claim RC
+		ON RC.ClaimID = B.RepresentativeClaimID
+		INNER JOIN BillClaim BC
+		ON BC.BillID = B.BillID
+		AND BC.BillBatchTypeCode = 'E'
+		INNER JOIN Claim C
+		ON C.ClaimID = BC.ClaimID
+	WHERE	B.BillID = @bill_id
+
+	--Fetch claims' diagnoses into temp table
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	INTO 
+		#ClaimBatchDiagnoses
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID1=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+	UNION
+
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID2=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+
+	UNION
+
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID3=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+
+	UNION
+
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID4=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+
+	UNION
+
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID5=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+
+	UNION
+
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID6=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+
+	UNION
+
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID7=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+
+	UNION
+
+	SELECT
+		CB.ClaimID, DiagnosisCode, ED.ListSequence
+	FROM
+		#ClaimBatch CB
+		INNER JOIN Claim C ON C.ClaimID = CB.ClaimID
+		INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+		INNER JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID8=ED.EncounterDiagnosisID
+		INNER JOIN DiagnosisCodeDictionary DCD ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+
+	-- we want codes that are listed first in claims generally go first in the list:
+	SELECT * INTO #ClaimBatchDiagnoses1 FROM #ClaimBatchDiagnoses ORDER BY ListSequence, ClaimID
+
+	CREATE TABLE #BatchDiagnoses(
+		DiagnosisCode varchar(64),
+		RID int IDENTITY(1,1)
+	)
+
+	-- make the list of diag codes:
+	INSERT INTO #BatchDiagnoses (DiagnosisCode)
+	SELECT DISTINCT DiagnosisCode FROM #ClaimBatchDiagnoses1
+
+	--SELECT * FROM #BatchDiagnoses
+
+	-- here is final pointers temp table - claim, diag, pointer:
+	SELECT DISTINCT	CBD.ClaimID, CBD.DiagnosisCode, BD.RID AS Pointer INTO #ClaimBatchDiagnosesPointers FROM #ClaimBatchDiagnoses CBD JOIN #BatchDiagnoses BD ON  BD.DiagnosisCode = CBD.DiagnosisCode
+
+	DROP TABLE #ClaimBatchDiagnoses
+	DROP TABLE #ClaimBatchDiagnoses1
+
+	-- prepare all diag codes we need for all service lines involved:
+	DECLARE @DiagnosisCode1 VARCHAR(32)
+	SELECT  @DiagnosisCode1 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 1
+
+	DECLARE @DiagnosisCode2 VARCHAR(32)
+	SELECT  @DiagnosisCode2 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 2
+
+	DECLARE @DiagnosisCode3 VARCHAR(32)
+	SELECT  @DiagnosisCode3 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 3
+
+	DECLARE @DiagnosisCode4 VARCHAR(32)
+	SELECT  @DiagnosisCode4 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 4
+
+	DECLARE @DiagnosisCode5 VARCHAR(32)
+	SELECT  @DiagnosisCode5 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 5
+
+	DECLARE @DiagnosisCode6 VARCHAR(32)
+	SELECT  @DiagnosisCode6 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 6
+
+	DECLARE @DiagnosisCode7 VARCHAR(32)
+	SELECT  @DiagnosisCode7 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 7
+
+	DECLARE @DiagnosisCode8 VARCHAR(32)
+	SELECT  @DiagnosisCode8 = DiagnosisCode FROM #BatchDiagnoses WHERE RID = 8
+
+	DROP TABLE #BatchDiagnoses
+
+	------------------------------------------------------------------------------------------------------
+	-- take care of CLIA number for loop 2300 - case 7531:
+
+	DECLARE @CliaNumber VARCHAR(100)
+
+	SELECT TOP 1 @CliaNumber=L.CLIANumber
+	FROM	#ClaimBatch TC
+		INNER JOIN Claim C
+		ON C.ClaimID = TC.ClaimID
+		INNER JOIN dbo.EncounterProcedure EP
+		ON EP.EncounterProcedureID = C.EncounterProcedureID
+		INNER JOIN dbo.Encounter E
+		ON E.EncounterID = EP.EncounterID
+		INNER JOIN ServiceLocation L
+		ON L.ServiceLocationID = E.LocationID
+		INNER JOIN ProcedureCodeDictionary PCD
+		ON EP.ProcedureCodeDictionaryID = PCD.ProcedureCodeDictionaryID
+		INNER JOIN TypeOfService TOS
+		ON TOS.TypeOfServiceCode = PCD.TypeOfServiceCode
+	WHERE	PCD.TypeOfServiceCode = '05'
+
+	DROP TABLE #ClaimBatch
+
+	------------------------------------------------------------------------------------------------------
+	-- now get all XML in one big scoop:
+
+	-- ST: TRANSACTION SET HEADER -- BHT
+	SELECT	1 AS Tag, NULL AS Parent,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id) AS [transaction!1!control-number],
+		@ClearinghouseConnectionID AS [transaction!1!clearinghouse-connection-id],
+		@RoutingPreference AS [transaction!1!routing-preference],
+		BB.CreatedDate AS [transaction!1!created-date],
+		GETDATE() AS [transaction!1!current-date],
+
+		@ProductionFlag  AS [transaction!1!production-flag],
+		'' AS [transaction!1!interchange-authorization-id],
+		'' AS [transaction!1!interchange-security-id],
+		1  AS [transaction!1!original-transaction-flag],
+
+		@SubmitterName AS [transaction!1!submitter-name],
+		@SubmitterEtin AS [transaction!1!submitter-etin],
+		@SubmitterContactName AS [transaction!1!submitter-contact-name],
+		@SubmitterContactPhone AS [transaction!1!submitter-contact-phone],
+		@SubmitterContactEmail AS [transaction!1!submitter-contact-email],
+		@SubmitterContactFax AS [transaction!1!submitter-contact-fax],
+		@ReceiverName AS [transaction!1!receiver-name],
+		@ReceiverEtin AS [transaction!1!receiver-etin],
+
+		NULL AS [billing!2!biller-type],
+		NULL AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		NULL AS [subscriber!3!subscriber-id],
+		NULL AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		NULL AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		NULL AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+	FROM	BillBatch BB
+	WHERE	BillBatchID = @batch_id
+	-- END OF ST: TRANSACTION SET HEADER -- BHT
+
+	UNION ALL
+
+	-- BILLING/PAY-TO PROVIDER LOOP (2010AA 2010AB)
+	SELECT	2, 1,
+		CONVERT(VARCHAR,@batch_id)  AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],		-- 1 or 2
+		PR.PracticeID AS [billing!2!billing-id],
+		UPPER(PR.Name) AS [billing!2!name],
+		UPPER(PR.AddressLine1) AS [billing!2!street-1],
+		UPPER(PR.AddressLine2) AS [billing!2!street-2],
+		UPPER(PR.City) AS [billing!2!city],
+		UPPER(PR.State) AS [billing!2!state],
+		PR.ZipCode AS [billing!2!zip],
+		@IndBillerQual AS [billing!2!ein-qualifier],
+		ISNULL(@IndBillerEIN, PR.EIN) AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		UPPER(PR.Name) AS [billing!2!payto-name],
+		UPPER(PR.AddressLine1) AS [billing!2!payto-street-1],
+		UPPER(PR.AddressLine2) AS [billing!2!payto-street-2],
+		UPPER(PR.City) AS [billing!2!payto-city],
+		UPPER(PR.State) AS [billing!2!payto-state],
+		PR.ZipCode AS [billing!2!payto-zip],
+		PR.EIN AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		NULL AS [subscriber!3!subscriber-id],
+		NULL AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		NULL AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		NULL AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+	FROM	BillBatch BB
+		INNER JOIN Practice PR
+		ON PR.PracticeID = BB.PracticeID
+	WHERE	BB.BillBatchID = @batch_id
+	-- END OF BILLING/PAY-TO PROVIDER LOOP (2010AA 2010AB)
+
+	UNION ALL
+
+	-- SUBSCRIBER HIERARCHICAL LEVEL - LOOP 2000
+	SELECT	3, 2,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		P.PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		B.PayerInsurancePolicyID AS [subscriber!3!subscriber-id],
+		B.BillID AS [subscriber!3!encounter-id],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderFirstName
+			ELSE P.FirstName END) 
+			AS [subscriber!3!first-name],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderMiddleName
+			ELSE P.MiddleName END)
+			AS [subscriber!3!middle-name],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderLastName
+			ELSE P.LastName END)
+			AS [subscriber!3!last-name],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderSuffix
+			ELSE P.Suffix END)
+			AS [subscriber!3!suffix],
+		PI.HolderDifferentThanPatient
+			AS [subscriber!3!insured-different-than-patient-flag],
+		B.PayerResponsibilityCode 
+			AS [subscriber!3!payer-responsibility-code],
+		UPPER(SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(ICP.PlanName,'+',''),'(',''),')',''),'#',''),',',''),'.',''),'/',''),'"',''),'&',' '),'''',''),'-',' '),'  ',' '),'  ',' '),1,35)) AS [subscriber!3!plan-name],
+--		UPPER(CPL.NameTransmitted) AS [subscriber!3!plan-name],
+		UPPER(PI.GroupNumber) AS [subscriber!3!group-number],
+		UPPER(PI.PolicyNumber) AS [subscriber!3!policy-number],
+		UPPER(CPL.NameTransmitted) AS [subscriber!3!payer-name],
+		UPPER(CPL.PayerNumber) AS [subscriber!3!payer-identifier],
+		UPPER(ICP.AddressLine1) AS [subscriber!3!payer-street-1],
+		UPPER(ICP.AddressLine2) AS [subscriber!3!payer-street-2],
+		UPPER(ICP.City) AS [subscriber!3!payer-city],
+		UPPER(ICP.State) AS [subscriber!3!payer-state],
+		ICP.ZipCode AS [subscriber!3!payer-zip],
+		@loop2010BB2U AS [subscriber!3!payer-secondary-id],
+		P.ResponsibleDifferentThanPatient
+			AS [subscriber!3!responsible-different-than-patient-flag],
+		UPPER(P.ResponsibleFirstName) 
+			AS [subscriber!3!responsible-first-name],
+		UPPER(P.ResponsibleMiddleName) 
+			AS [subscriber!3!responsible-middle-name],
+		UPPER(P.ResponsibleLastName) 
+			AS [subscriber!3!responsible-last-name],
+		UPPER(P.ResponsibleSuffix) AS [subscriber!3!responsible-suffix],
+		UPPER(P.ResponsibleAddressLine1)
+			AS [subscriber!3!responsible-street-1],
+		UPPER(P.ResponsibleAddressLine2)
+			AS [subscriber!3!responsible-street-2],
+		UPPER(P.ResponsibleCity) AS [subscriber!3!responsible-city],
+		UPPER(P.ResponsibleState) AS [subscriber!3!responsible-state],
+		P.ResponsibleZipCode AS [subscriber!3!responsible-zip],
+		@InsuranceProgramCode AS [subscriber!3!claim-filing-indicator-code],
+		NULL AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		NULL AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+	FROM	Bill_EDI B
+		INNER JOIN InsurancePolicy PI
+			INNER JOIN InsuranceCompanyPlan ICP
+			ON ICP.InsuranceCompanyPlanID = PI.InsuranceCompanyPlanID
+			INNER JOIN InsuranceCompany IC 
+			ON ICP.InsuranceCompanyID = IC.InsuranceCompanyID
+			LEFT OUTER JOIN ClearinghousePayersList CPL
+			ON IC.ClearinghousePayerID = CPL.ClearinghousePayerID
+		ON PI.InsurancePolicyID = B.PayerInsurancePolicyID
+		INNER JOIN PatientCase PC
+		ON PC.PatientCaseID = PI.PatientCaseID
+		INNER JOIN Patient P
+		ON P.PatientID = PC.PatientID
+	WHERE	B.BillID = @bill_id
+	-- END OF SUBSCRIBER HIERARCHICAL LEVEL - LOOP 2000
+
+	UNION ALL
+
+	-- PATIENT HIERARCHICAL LEVEL - 2010BA
+	SELECT	4, 3,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		P.PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		B.PayerInsurancePolicyID AS [subscriber!3!subscriber-id],
+		B.BillID AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		RC.PatientID AS [patient!4!patient-id],
+		PI.PatientRelationshipToInsured
+			AS [patient!4!relation-to-insured-code],
+		UPPER(PI.DependentPolicyNumber) 
+			AS [patient!4!dependent-policy-number],
+		UPPER(P.FirstName) AS [patient!4!first-name],
+		UPPER(P.MiddleName) AS [patient!4!middle-name],
+		UPPER(P.LastName) AS [patient!4!last-name],
+		UPPER(P.Suffix) AS [patient!4!suffix],
+		UPPER(P.AddressLine1) AS [patient!4!street-1],
+		UPPER(P.AddressLine2) AS [patient!4!street-2],
+		UPPER(P.City) AS [patient!4!city],
+		UPPER(P.State) AS [patient!4!state],
+		P.ZipCode AS [patient!4!zip],
+		P.DOB AS [patient!4!birth-date],
+		UPPER(P.Gender) AS [patient!4!gender],
+		NULL AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+	FROM	Bill_EDI B
+		INNER JOIN Claim RC
+		ON RC.ClaimID = B.RepresentativeClaimID
+		INNER JOIN Patient P
+		ON P.PatientID = RC.PatientID
+		INNER JOIN InsurancePolicy PI
+		ON PI.InsurancePolicyID = B.PayerInsurancePolicyID
+	WHERE	B.BillID = @bill_id
+	-- END OF PATIENT HIERARCHICAL LEVEL - 2010BA
+
+	UNION ALL
+
+	-- CLAIM INFORMATION - loop 2300 CLM
+	SELECT TOP 1    5, 4,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		RC.PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		B.PayerInsurancePolicyID AS [subscriber!3!subscriber-id],
+		B.BillID AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		RC.PatientID AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		B.BillID AS [claim!5!claim-id],
+		-- [claim!5!control-number] cannot be more than 20 chars:
+		CONVERT(VARCHAR,RC.PatientID) + 'K'
+			+ CONVERT(VARCHAR,RC.ClaimID) + 'K9'
+			-- + CONVERT(VARCHAR,B.BillBatchID) + 'K' 
+			-- + CONVERT(VARCHAR,B.BillID)
+			 AS [claim!5!control-number],
+		dbo.BusinessRule_EDIBillTotalAdjustedChargeAmount(B.BillID) 
+			AS [claim!5!total-claim-amount],
+		E.PlaceOfServiceCode AS [claim!5!place-of-service-code],
+		1 AS [claim!5!provider-signature-flag],					-- RC.ProviderSignatureOnFileFlag 
+		E.MedicareAssignmentCode AS [claim!5!medicare-assignment-code],
+		E.AssignmentOfBenefitsFlag 
+			AS [claim!5!assignment-of-benefits-flag],
+		E.ReleaseOfInformationCode 	
+			AS [claim!5!release-of-information-code],
+		'B' -- E.ReleaseSignatureSourceCode 
+			AS [claim!5!patient-signature-source-code],
+		PC.AutoAccidentRelatedFlag
+			AS [claim!5!auto-accident-related-flag],
+		PC.AbuseRelatedFlag AS [claim!5!abuse-related-flag],
+		PC.EmploymentRelatedFlag AS [claim!5!employment-related-flag],
+		PC.OtherAccidentRelatedFlag 
+			AS [claim!5!other-accident-related-flag],
+		PC.AutoAccidentRelatedState AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],					-- PC.SpecialProgramCode
+		InitialTreatmentDate.StartDate AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],					-- PC.ReferralDate
+		NULL AS [claim!5!last-seen-date],					-- PC.LastSeenDate 
+		DateOfInjury.StartDate AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],				-- PC.AcuteManifestationDate
+		DateOfSimilarInjury.StartDate AS [claim!5!similar-illness-date],
+		(CASE WHEN (PC.AutoAccidentRelatedFlag <> 0 OR PC.OtherAccidentRelatedFlag <> 0) 
+			THEN DateOfInjury.StartDate ELSE NULL 
+			END) AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],					-- PC.LastXrayDate
+		Disability.StartDate AS [claim!5!disability-begin-date],
+		Disability.EndDate AS [claim!5!disability-end-date],
+		UnableToWork.StartDate AS [claim!5!last-worked-date],
+		UnableToWork.EndDate AS [claim!5!return-to-work-date],
+		Hospitalization.StartDate AS [claim!5!hospitalization-begin-date],
+		Hospitalization.EndDate AS [claim!5!hospitalization-end-date],
+		E.AmountPaid AS [claim!5!patient-paid-amount],				-- RC.PatientPaidAmount
+		UPPER(A.AuthorizationNumber) AS [claim!5!authorization-number],
+		-- list of diagnostic codes:
+		(CASE WHEN (@DiagnosisCode1 IS NOT NULL) THEN UPPER(@DiagnosisCode1) ELSE NULL END) AS [claim!5!diagnosis-1],
+		(CASE WHEN (@DiagnosisCode2 IS NOT NULL) THEN UPPER(@DiagnosisCode2) ELSE NULL END) AS [claim!5!diagnosis-2],
+		(CASE WHEN (@DiagnosisCode3 IS NOT NULL) THEN UPPER(@DiagnosisCode3) ELSE NULL END) AS [claim!5!diagnosis-3],
+		(CASE WHEN (@DiagnosisCode4 IS NOT NULL) THEN UPPER(@DiagnosisCode4) ELSE NULL END) AS [claim!5!diagnosis-4],
+		(CASE WHEN (@DiagnosisCode5 IS NOT NULL) THEN UPPER(@DiagnosisCode5) ELSE NULL END) AS [claim!5!diagnosis-5],
+		(CASE WHEN (@DiagnosisCode6 IS NOT NULL) THEN UPPER(@DiagnosisCode6) ELSE NULL END) AS [claim!5!diagnosis-6],
+		(CASE WHEN (@DiagnosisCode7 IS NOT NULL) THEN UPPER(@DiagnosisCode7) ELSE NULL END) AS [claim!5!diagnosis-7],
+		(CASE WHEN (@DiagnosisCode8 IS NOT NULL) THEN UPPER(@DiagnosisCode8) ELSE NULL END) AS [claim!5!diagnosis-8],
+		@CliaNumber AS [claim!5!clia-number],
+		(CASE WHEN (PC.ReferringPhysicianID IS NOT NULL AND RP.UPIN IS NOT NULL) THEN 1 ELSE 0 END)
+			AS [claim!5!referring-provider-flag],
+		UPPER(RP.FirstName) AS [claim!5!referring-provider-first-name],
+		UPPER(RP.MiddleName) 
+			AS [claim!5!referring-provider-middle-name],
+		UPPER(RP.LastName) AS [claim!5!referring-provider-last-name],
+		UPPER(RP.Suffix) AS [claim!5!referring-provider-suffix],
+		UPPER(RP.UPIN) AS [claim!5!referring-provider-upin],
+		@ReferringProviderIdQualifier AS [claim!5!referring-provider-id-qualifier],
+		--NULL AS [claim!5!referring-provider-id-number],
+--		UPPER(RC.ReferringProviderIDNumber)
+		(CASE WHEN (UPPER(ISNULL(RP.UPIN,'')) <> UPPER(ISNULL(RC.ReferringProviderIDNumber,''))) THEN UPPER(RC.ReferringProviderIDNumber) ELSE NULL END)
+			AS [claim!5!referring-provider-id-number],
+		UPPER(D.FirstName) AS [claim!5!rendering-provider-first-name],
+		UPPER(D.MiddleName) AS [claim!5!rendering-provider-middle-name],
+		UPPER(D.LastName) AS [claim!5!rendering-provider-last-name],
+		UPPER(D.Suffix) AS [claim!5!rendering-provider-suffix],
+		CAST(@loop2310Bqual AS VARCHAR(30)) AS [claim!5!rendering-provider-ssn-qual],
+		UPPER(ISNULL(@loop2310Btaxid, D.SSN)) AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		-- UPPER(D.UPIN) AS [claim!5!rendering-provider-upin],
+		UPPER(D.TaxonomyCode) 
+			AS [claim!5!rendering-provider-specialty-code],
+		UPPER(L.BillingName) AS [claim!5!service-facility-name],
+		UPPER(L.AddressLine1) AS [claim!5!service-facility-street-1],
+		UPPER(L.AddressLine2) AS [claim!5!service-facility-street-2],
+		UPPER(L.City) AS [claim!5!service-facility-city],
+		UPPER(L.State) AS [claim!5!service-facility-state],
+		L.ZipCode AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+	FROM	Bill_EDI B
+		INNER JOIN Claim RC
+		ON RC.ClaimID = B.RepresentativeClaimID
+
+		INNER JOIN dbo.EncounterProcedure EP
+			ON EP.EncounterProcedureID = RC.EncounterProcedureID
+		INNER JOIN dbo.Encounter E
+			ON E.EncounterID = EP.EncounterID
+		INNER JOIN PatientCase PC
+			ON PC.PatientCaseID = E.PatientCaseID
+		LEFT JOIN PatientCaseDate AS InitialTreatmentDate
+			ON InitialTreatmentDate.PatientCaseID = PC.PatientCaseID
+			AND InitialTreatmentDate.PatientCaseDateTypeID = 1
+		LEFT JOIN PatientCaseDate AS DateOfInjury
+			ON DateOfInjury.PatientCaseID = PC.PatientCaseID
+			AND DateOfInjury.PatientCaseDateTypeID = 2
+		LEFT JOIN PatientCaseDate AS DateOfSimilarInjury
+			ON DateOfSimilarInjury.PatientCaseID = PC.PatientCaseID
+			AND DateOfSimilarInjury.PatientCaseDateTypeID = 3
+		LEFT JOIN PatientCaseDate AS UnableToWork
+			ON UnableToWork.PatientCaseID = PC.PatientCaseID
+			AND UnableToWork.PatientCaseDateTypeID = 4
+		LEFT JOIN PatientCaseDate AS Disability
+			ON Disability.PatientCaseID = PC.PatientCaseID
+			AND Disability.PatientCaseDateTypeID = 5
+		LEFT JOIN PatientCaseDate AS Hospitalization
+			ON Hospitalization.PatientCaseID = PC.PatientCaseID
+			AND Hospitalization.PatientCaseDateTypeID = 6
+		INNER JOIN Doctor D
+			ON D.DoctorID = E.DoctorID
+		INNER JOIN ServiceLocation L
+			ON L.ServiceLocationID = E.LocationID
+		LEFT OUTER JOIN ReferringPhysician RP
+			ON (RP.ReferringPhysicianID = PC.ReferringPhysicianID AND RP.UPIN <> '')
+ 		LEFT OUTER JOIN InsurancePolicyAuthorization A
+ 			ON E.InsurancePolicyAuthorizationID = A.InsurancePolicyAuthorizationID
+
+	WHERE	B.BillID = @bill_id
+	-- END OF CLAIM INFORMATION - loop 2300 CLM
+
+
+	UNION ALL
+
+	-- SUBSCRIBER LEVEL - DIFFERENT THAN PATIENT
+	SELECT	6, 5,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name], 
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		RC.PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		B.PayerInsurancePolicyID AS [subscriber!3!subscriber-id],
+		B.BillID AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		RC.PatientID AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		B.BillID AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		PI.InsurancePolicyID AS [secondary!6!secondary-id],
+		PI.HolderDifferentThanPatient
+			AS [secondary!6!insured-different-than-patient-flag],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderFirstName
+			ELSE P.FirstName END)
+			AS [secondary!6!subscriber-first-name],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderMiddleName
+			ELSE P.MiddleName END)
+			AS [secondary!6!subscriber-middle-name],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderLastName
+			ELSE P.Lastname END)
+			AS [secondary!6!subscriber-last-name],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderSuffix
+			ELSE P.Suffix END)
+			AS [secondary!6!subscriber-suffix],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderAddressLine1
+			ELSE P.AddressLine1 END)
+			AS [secondary!6!subscriber-street-1],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderAddressLine2
+			ELSE P.AddressLine2 END)
+			AS [secondary!6!subscriber-street-2],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderCity
+			ELSE P.City END)
+			AS [secondary!6!subscriber-city],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderState
+			ELSE P.State END)
+			AS [secondary!6!subscriber-state],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderZipCode
+			ELSE P.ZipCode END)
+			AS [secondary!6!subscriber-zip],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderDOB
+			ELSE P.DOB END)
+			AS [secondary!6!subscriber-birth-date],
+		UPPER(CASE PI.HolderDifferentThanPatient
+			WHEN 1 THEN PI.HolderGender
+			ELSE P.Gender END)
+			AS [secondary!6!subscriber-gender],
+		UPPER(PI.PatientRelationshipToInsured)
+			AS [secondary!6!relation-to-insured-code],
+		B.PayerResponsibilityCode 	
+			AS [secondary!6!payer-responsibility-code],
+		UPPER(SUBSTRING(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(ICP.PlanName,'+',''),'(',''),')',''),'#',''),',',''),'.',''),'/',''),'"',''),'&',' '),'''',''),'-',' '),'  ',' '),'  ',' '),1,35)) AS [secondary!6!plan-name],
+		UPPER(PI.GroupNumber) AS [secondary!6!group-number],
+		UPPER(PI.PolicyNumber) AS [secondary!6!policy-numer],
+--		UPPER(ICP.PlanName) AS [secondary!6!payer-name],
+		UPPER(CPL.NameTransmitted) AS [secondary!6!payer-name],
+		CPL.PayerNumber AS [secondary!6!payer-identifier],
+		UPPER(COALESCE(ICP.ContactFirstName + ' ', '')
+			+ COALESCE(ICP.ContactMiddleName + ' ', '')
+			+ COALESCE(ICP.ContactLastName, ''))
+			AS [secondary!6!payer-contact-name],
+		ICP.Phone AS [secondary!6!payer-contact-phone],
+		dbo.BusinessRule_EDIBillPayerPaid(
+			B.BillID, 
+			ICP.InsuranceCompanyPlanID) 
+			AS [secondary!6!payer-paid-flag],
+		dbo.BusinessRule_EDIBillPayerPaidAmount(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID)
+			AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+	FROM	Bill_EDI B
+		INNER JOIN Claim RC
+		ON RC.ClaimID = B.RepresentativeClaimID
+		INNER JOIN Patient P
+		ON P.PatientID = RC.PatientID
+			INNER JOIN InsurancePolicy PI
+			ON PI.InsurancePolicyID = B.PayerInsurancePolicyID
+			INNER JOIN InsuranceCompanyPlan ICP
+				INNER JOIN InsuranceCompany IC 
+				ON ICP.InsuranceCompanyID = IC.InsuranceCompanyID
+				LEFT OUTER JOIN ClearinghousePayersList CPL
+				ON IC.ClearinghousePayerID = CPL.ClearinghousePayerID
+			ON ICP.InsuranceCompanyPlanID = PI.InsuranceCompanyPlanID
+		AND PI.InsurancePolicyID <> B.PayerInsurancePolicyID
+	WHERE	B.BillID = @bill_id
+	-- END OF SUBSCRIBER LEVEL - DIFFERENT THAN PATIENT
+
+
+	UNION ALL
+
+	-- RENDERING PROVIDER NUMBERS - INSURANCE PLAN ASSIGNED PROVIDER ID
+	-- Rendering provider numbers for REF (Doctor provider numbers, Loop 2310B):
+	SELECT DISTINCT	10, 5,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		@PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		PT.PayerInsurancePolicyID AS [subscriber!3!subscriber-id],
+		@bill_id AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		@PatientID AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		@bill_id AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		PT.ANSIReferenceIdentificationQualifier AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		PT.ProviderNumber AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		PT.ProviderNumberID AS [secondary!6!secondary-id],		-- the NULL here would break some rare submissions, and any variable may ruin DISTINCT.
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+
+	FROM	@t_providernumbers PT
+	-- END OF RENDERING PROVIDER NUMBERS - INSURANCE PLAN ASSIGNED PROVIDER ID
+
+	UNION ALL
+
+	-- SERVICE LINE HIERARCHICAL LEVEL
+	SELECT 7, 5,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		RC.PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		B.PayerInsurancePolicyID AS [subscriber!3!subscriber-id],
+		B.BillID AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		RC.PatientID AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		B.BillID AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		C.ClaimID AS [service!7!service-id],
+		-- [service!7!control-number] no more than 20 chars. Must differ from [claim!5!control-number]:
+		'S' + CONVERT(VARCHAR,RC.PatientID) + 'K'
+			+ CONVERT(VARCHAR,BC.ClaimID) + 'K9'
+			-- + CONVERT(VARCHAR,B.BillBatchID) + 'K' 
+			-- + CONVERT(VARCHAR,BC.BillID)
+			AS [service!7!control-number],
+		UPPER(PCD.ProcedureCode) AS [service!7!procedure-code],
+		EP.ProcedureDateOfService AS [service!7!service-date],
+		dbo.BusinessRule_ClaimAdjustedChargeAmount(C.ClaimID) AS [service!7!service-charge-amount],
+--		C.ServiceChargeAmount * C.ServiceUnitCount AS [service!7!service-charge-amount],
+		EP.ServiceUnitCount AS [service!7!service-unit-count],
+		E.PlaceOfServiceCode AS [service!7!place-of-service-code],
+		EP.ProcedureModifier1 AS [service!7!procedure-modifier-1],
+		EP.ProcedureModifier2 AS [service!7!procedure-modifier-2],
+		EP.ProcedureModifier3 AS [service!7!procedure-modifier-3],
+		EP.ProcedureModifier4 AS [service!7!procedure-modifier-4],
+
+		CASE WHEN DCD.DiagnosisCode IS NOT NULL THEN CBDP.Pointer ELSE NULL END AS [service!7!diagnosis-pointer-1],
+		CASE WHEN DCD2.DiagnosisCode IS NOT NULL THEN CBDP2.Pointer ELSE NULL END AS [service!7!diagnosis-pointer-2],
+		CASE WHEN DCD3.DiagnosisCode IS NOT NULL THEN CBDP3.Pointer ELSE NULL END AS [service!7!diagnosis-pointer-3],
+		CASE WHEN DCD4.DiagnosisCode IS NOT NULL THEN CBDP4.Pointer ELSE NULL END AS [service!7!diagnosis-pointer-4],
+
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+	FROM	Bill_EDI B	
+		INNER JOIN Claim RC
+		ON RC.ClaimID = B.RepresentativeClaimID
+		INNER JOIN BillClaim BC
+		ON BC.BillID = B.BillID
+		AND BC.BillBatchTypeCode = 'E'
+		INNER JOIN Claim C
+		ON C.ClaimID = BC.ClaimID
+		INNER JOIN dbo.EncounterProcedure EP
+		ON EP.EncounterProcedureID = C.EncounterProcedureID
+		INNER JOIN ProcedureCodeDictionary PCD
+		ON EP.ProcedureCodeDictionaryID = PCD.ProcedureCodeDictionaryID
+		INNER JOIN Encounter E
+		ON E.EncounterID = EP.EncounterID
+
+		LEFT JOIN EncounterDiagnosis ED ON EP.EncounterDiagnosisID1=ED.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD
+		ON ED.DiagnosisCodeDictionaryID=DCD.DiagnosisCodeDictionaryID
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP ON CBDP.ClaimID = BC.ClaimID AND DCD.DiagnosisCode = CBDP.DiagnosisCode
+
+		LEFT JOIN EncounterDiagnosis ED2 ON EP.EncounterDiagnosisID2=ED2.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD2
+		ON ED2.DiagnosisCodeDictionaryID=DCD2.DiagnosisCodeDictionaryID
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP2 ON CBDP2.ClaimID = BC.ClaimID AND DCD2.DiagnosisCode = CBDP2.DiagnosisCode
+
+		LEFT JOIN EncounterDiagnosis ED3 ON EP.EncounterDiagnosisID3=ED3.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD3
+		ON ED3.DiagnosisCodeDictionaryID=DCD3.DiagnosisCodeDictionaryID
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP3 ON CBDP3.ClaimID = BC.ClaimID AND DCD3.DiagnosisCode = CBDP3.DiagnosisCode
+
+		LEFT JOIN EncounterDiagnosis ED4 ON EP.EncounterDiagnosisID4=ED4.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD4
+		ON ED4.DiagnosisCodeDictionaryID=DCD4.DiagnosisCodeDictionaryID	
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP4 ON CBDP4.ClaimID = BC.ClaimID AND DCD4.DiagnosisCode = CBDP4.DiagnosisCode
+
+		LEFT JOIN EncounterDiagnosis ED5 ON EP.EncounterDiagnosisID5=ED5.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD5
+		ON ED5.DiagnosisCodeDictionaryID=DCD5.DiagnosisCodeDictionaryID	
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP5 ON CBDP5.ClaimID = BC.ClaimID AND DCD5.DiagnosisCode = CBDP5.DiagnosisCode
+
+		LEFT JOIN EncounterDiagnosis ED6 ON EP.EncounterDiagnosisID6=ED6.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD6
+		ON ED6.DiagnosisCodeDictionaryID=DCD6.DiagnosisCodeDictionaryID	
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP6 ON CBDP6.ClaimID = BC.ClaimID AND DCD6.DiagnosisCode = CBDP6.DiagnosisCode
+
+		LEFT JOIN EncounterDiagnosis ED7 ON EP.EncounterDiagnosisID7=ED7.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD7
+		ON ED7.DiagnosisCodeDictionaryID=DCD7.DiagnosisCodeDictionaryID	
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP7 ON CBDP7.ClaimID = BC.ClaimID AND DCD7.DiagnosisCode = CBDP7.DiagnosisCode
+
+		LEFT JOIN EncounterDiagnosis ED8 ON EP.EncounterDiagnosisID8=ED8.EncounterDiagnosisID
+		LEFT JOIN DiagnosisCodeDictionary DCD8
+		ON ED8.DiagnosisCodeDictionaryID=DCD8.DiagnosisCodeDictionaryID	
+		LEFT JOIN #ClaimBatchDiagnosesPointers CBDP8 ON CBDP8.ClaimID = BC.ClaimID AND DCD8.DiagnosisCode = CBDP8.DiagnosisCode
+
+	WHERE	B.BillID = @bill_id
+	-- END OF SERVICE LINE HIERARCHICAL LEVEL
+
+	UNION ALL
+
+	-- ? not used ?
+	SELECT	8, 7,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		RC.PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		NULL AS [secondaryident!9!id-qualifier],
+		NULL AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		NULL AS [secondaryident!9!payto-id-qualifier],
+		NULL AS [secondaryident!9!payto-provider-id],
+
+		B.PayerInsurancePolicyID AS [subscriber!3!subscriber-id],
+		B.BillID AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		RC.PatientID AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		B.BillID AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		C.ClaimID AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		CT.ClaimTransactionID AS [adjudication!8!adjudication-id],
+		CPL.PayerNumber AS [adjudication!8!payer-identifier],
+		CT.Amount AS [adjudication!8!paid-amount],
+		CT.Quantity AS [adjudication!8!paid-unit-count],
+		PMT.PostingDate AS [adjudication!8!paid-date],
+		dbo.BusinessRule_EDIBillPayerAdjusted(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID)
+			AS [adjudication!8!payer-adjusted-flag],
+		dbo.BusinessRule_EDIBillPayerAdjustmentCode(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID, 
+			1) 
+			AS [adjudication!8!adjustment-reason-1],
+		dbo.BusinessRule_EDIBillPayerAdjustmentAmount(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			1)
+			AS [adjudication!8!adjustment-amount-1],
+		dbo.BusinessRule_EDIBillPayerAdjustmentCode(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			1)
+			AS [adjudication!8!adjustment-reason-2],
+		dbo.BusinessRule_EDIBillPayerAdjustmentAmount(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			2)
+			AS [adjudication!8!adjustment-amount-2],
+		dbo.BusinessRule_EDIBillPayerAdjustmentCode(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			3)
+			AS [adjudication!8!adjustment-reason-3],
+		dbo.BusinessRule_EDIBillPayerAdjustmentAmount(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			3)
+			AS [adjudication!8!adjustment-amount-3],
+		dbo.BusinessRule_EDIBillPayerAdjustmentCode(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			4)
+			AS [adjudication!8!adjustment-reason-4],
+		dbo.BusinessRule_EDIBillPayerAdjustmentAmount(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			4)
+			AS [adjudication!8!adjustment-amount-4],
+		dbo.BusinessRule_EDIBillPayerAdjustmentCode(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			5)
+			AS [adjudication!8!adjustment-reason-5],
+		dbo.BusinessRule_EDIBillPayerAdjustmentAmount(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			5)
+			AS [adjudication!8!adjustment-amount-5],
+		dbo.BusinessRule_EDIBillPayerAdjustmentCode(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			6)
+			AS [adjudication!8!adjustment-reason-6],
+		dbo.BusinessRule_EDIBillPayerAdjustmentAmount(
+			B.BillID,
+			ICP.InsuranceCompanyPlanID,
+			6)
+			AS [adjudication!8!adjustment-amount-6]
+	FROM	Bill_EDI B
+		INNER JOIN Claim RC
+		ON RC.ClaimID = B.RepresentativeClaimID
+		INNER JOIN BillClaim BC
+		ON BC.BillID = B.BillID
+		AND BC.BillBatchTypeCode = 'E'
+		INNER JOIN Claim C
+		ON C.ClaimID = BC.ClaimID
+		INNER JOIN ClaimTransaction CT
+		ON CT.ClaimID = C.ClaimID
+		AND CT.ClaimTransactionTypeCode = 'PAY'
+		INNER JOIN Payment PMT
+		ON PMT.PaymentID = CT.ReferenceID
+		AND PMT.PayerTypeCode = 'I'
+		INNER JOIN InsuranceCompanyPlan ICP
+			INNER JOIN InsuranceCompany IC 
+			ON ICP.InsuranceCompanyID = IC.InsuranceCompanyID
+			LEFT OUTER JOIN ClearinghousePayersList CPL
+			ON IC.ClearinghousePayerID = CPL.ClearinghousePayerID
+		ON ICP.InsuranceCompanyPlanID = PMT.PayerID
+	WHERE	B.BillID = @bill_id
+	-- END OF ? not used ?
+
+	UNION ALL
+
+	-- BILLING PROVIDER SECONDARY IDENTIFICATION
+	-- payer assigned provider IDs for the Practice, Loop 2010AA (Group Numbers):  
+	-- the "secondaryident" portions below are under assumption that billing and pay-to are the same (which they always are in real life).
+	-- if they ever differ, some code needs to be written to place them correctly.
+
+	SELECT	9, 2,
+		CONVERT(VARCHAR,@batch_id) AS [transaction!1!transaction-id],
+		CONVERT(VARCHAR,@bill_id)  AS [transaction!1!control-number],
+		NULL AS [transaction!1!clearinghouse-connection-id],
+		NULL AS [transaction!1!routing-preference],
+		NULL AS [transaction!1!created-date],
+		NULL AS [transaction!1!current-date],
+
+		NULL AS [transaction!1!production-flag],
+		NULL AS [transaction!1!interchange-authorization-id],
+		NULL AS [transaction!1!interchange-security-id],
+		NULL AS [transaction!1!original-transaction-flag],
+
+		NULL AS [transaction!1!submitter-name],
+		NULL AS [transaction!1!submitter-etin],
+		NULL AS [transaction!1!submitter-contact-name],
+		NULL AS [transaction!1!submitter-contact-phone],
+		NULL AS [transaction!1!submitter-contact-email],
+		NULL AS [transaction!1!submitter-contact-fax],
+		NULL AS [transaction!1!receiver-name],
+		NULL AS [transaction!1!receiver-etin],
+
+		@BillerType AS [billing!2!biller-type],
+		@PracticeID AS [billing!2!billing-id],
+		NULL AS [billing!2!name],
+		NULL AS [billing!2!street-1],
+		NULL AS [billing!2!street-2],
+		NULL AS [billing!2!city],
+		NULL AS [billing!2!state],
+		NULL AS [billing!2!zip],
+		NULL AS [billing!2!ein-qualifier],
+		NULL AS [billing!2!ein],
+
+		TT.ANSIReferenceIdentificationQualifier AS [secondaryident!9!id-qualifier],
+		TT.GroupNumber AS [secondaryident!9!provider-id],
+
+		NULL AS [billing!2!payto-name],
+		NULL AS [billing!2!payto-street-1],
+		NULL AS [billing!2!payto-street-2],
+		NULL AS [billing!2!payto-city],
+		NULL AS [billing!2!payto-state],
+		NULL AS [billing!2!payto-zip],
+		NULL AS [billing!2!payto-ein],
+
+		TT.ANSIReferenceIdentificationQualifier AS [secondaryident!9!payto-id-qualifier],
+		TT.GroupNumber AS [secondaryident!9!payto-provider-id],
+
+		NULL AS [subscriber!3!subscriber-id],
+		NULL AS [subscriber!3!encounter-id],
+		NULL AS [subscriber!3!first-name],
+		NULL AS [subscriber!3!middle-name],
+		NULL AS [subscriber!3!last-name],
+		NULL AS [subscriber!3!suffix],
+		NULL AS [subscriber!3!insured-different-than-patient-flag],
+		NULL AS [subscriber!3!payer-responsibility-code],
+		NULL AS [subscriber!3!plan-name],
+		NULL AS [subscriber!3!group-number],
+		NULL AS [subscriber!3!policy-number],
+		NULL AS [subscriber!3!payer-name],
+		NULL AS [subscriber!3!payer-identifier],
+		NULL AS [subscriber!3!payer-street-1],
+		NULL AS [subscriber!3!payer-street-2],
+		NULL AS [subscriber!3!payer-city],
+		NULL AS [subscriber!3!payer-state],
+		NULL AS [subscriber!3!payer-zip],
+		NULL AS [subscriber!3!payer-secondary-id],
+		NULL AS [subscriber!3!responsible-different-than-patient-flag],
+		NULL AS [subscriber!3!responsible-first-name],
+		NULL AS [subscriber!3!responsible-middle-name],
+		NULL AS [subscriber!3!responsible-last-name],
+		NULL AS [subscriber!3!responsible-suffix],
+		NULL AS [subscriber!3!responsible-street-1],
+		NULL AS [subscriber!3!responsible-street-2],
+		NULL AS [subscriber!3!responsible-city],
+		NULL AS [subscriber!3!responsible-state],
+		NULL AS [subscriber!3!responsible-zip],
+		NULL AS [subscriber!3!claim-filing-indicator-code],
+		NULL AS [patient!4!patient-id],
+		NULL AS [patient!4!relation-to-insured-code],
+		NULL AS [patient!4!dependent-policy-number],
+		NULL AS [patient!4!first-name],
+		NULL AS [patient!4!middle-name],
+		NULL AS [patient!4!last-name],
+		NULL AS [patient!4!suffix],
+		NULL AS [patient!4!street-1],
+		NULL AS [patient!4!street-2],
+		NULL AS [patient!4!city],
+		NULL AS [patient!4!state],
+		NULL AS [patient!4!zip],
+		NULL AS [patient!4!birth-date],
+		NULL AS [patient!4!gender],
+		NULL AS [claim!5!claim-id],
+		NULL AS [claim!5!control-number],
+		NULL AS [claim!5!total-claim-amount],
+		NULL AS [claim!5!place-of-service-code],
+		NULL AS [claim!5!provider-signature-flag],
+		NULL AS [claim!5!medicare-assignment-code],
+		NULL AS [claim!5!assignment-of-benefits-flag],
+		NULL AS [claim!5!release-of-information-code],
+		NULL AS [claim!5!patient-signature-source-code],
+		NULL AS [claim!5!auto-accident-related-flag],
+		NULL AS [claim!5!abuse-related-flag],
+		NULL AS [claim!5!employment-related-flag],
+		NULL AS [claim!5!other-accident-related-flag],
+		NULL AS [claim!5!auto-accident-state],
+		NULL AS [claim!5!special-program-code],
+		NULL AS [claim!5!initial-treatment-date],
+		NULL AS [claim!5!referral-date],
+		NULL AS [claim!5!last-seen-date],
+		NULL AS [claim!5!current-illness-date],
+		NULL AS [claim!5!acute-manifestation-date],
+		NULL AS [claim!5!similar-illness-date],
+		NULL AS [claim!5!accident-date],
+		NULL AS [claim!5!last-xray-date],
+		NULL AS [claim!5!disability-begin-date],
+		NULL AS [claim!5!disability-end-date],
+		NULL AS [claim!5!last-worked-date],
+		NULL AS [claim!5!return-to-work-date],
+		NULL AS [claim!5!hospitalization-begin-date],
+		NULL AS [claim!5!hospitalization-end-date],
+		NULL AS [claim!5!patient-paid-amount],
+		NULL AS [claim!5!authorization-number],
+		NULL AS [claim!5!diagnosis-1],
+		NULL AS [claim!5!diagnosis-2],
+		NULL AS [claim!5!diagnosis-3],
+		NULL AS [claim!5!diagnosis-4],
+		NULL AS [claim!5!diagnosis-5],
+		NULL AS [claim!5!diagnosis-6],
+		NULL AS [claim!5!diagnosis-7],
+		NULL AS [claim!5!diagnosis-8],
+		NULL AS [claim!5!clia-number],
+		NULL AS [claim!5!referring-provider-flag],
+		NULL AS [claim!5!referring-provider-first-name],
+		NULL AS [claim!5!referring-provider-middle-name],
+		NULL AS [claim!5!referring-provider-last-name],
+		NULL AS [claim!5!referring-provider-suffix],
+		NULL AS [claim!5!referring-provider-upin],
+		NULL AS [claim!5!referring-provider-id-qualifier],
+		NULL AS [claim!5!referring-provider-id-number],
+		NULL AS [claim!5!rendering-provider-first-name],
+		NULL AS [claim!5!rendering-provider-middle-name],
+		NULL AS [claim!5!rendering-provider-last-name],
+		NULL AS [claim!5!rendering-provider-suffix],
+		NULL AS [claim!5!rendering-provider-ssn-qual],
+		NULL AS [claim!5!rendering-provider-ssn],
+		NULL AS [claim!5!rendering-provider-upin],
+		NULL AS [claim!5!rendering-provider-specialty-code],
+		NULL AS [claim!5!service-facility-name],
+		NULL AS [claim!5!service-facility-street-1],
+		NULL AS [claim!5!service-facility-street-2],
+		NULL AS [claim!5!service-facility-city],
+		NULL AS [claim!5!service-facility-state],
+		NULL AS [claim!5!service-facility-zip],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-id-qualifier],
+		NULL AS [renderingprovidernumbers!10!rendering-provider-provider-id],
+		NULL AS [secondary!6!secondary-id],
+		NULL AS [secondary!6!insured-different-than-patient-flag],
+		NULL AS [secondary!6!subscriber-first-name],
+		NULL AS [secondary!6!subscriber-middle-name],
+		NULL AS [secondary!6!subscriber-last-name],
+		NULL AS [secondary!6!subscriber-suffix],
+		NULL AS [secondary!6!subscriber-street-1],
+		NULL AS [secondary!6!subscriber-street-2],
+		NULL AS [secondary!6!subscriber-city],
+		NULL AS [secondary!6!subscriber-state],
+		NULL AS [secondary!6!subscriber-zip],
+		NULL AS [secondary!6!subscriber-birth-date],
+		NULL AS [secondary!6!subscriber-gender],
+		NULL AS [secondary!6!relation-to-insured-code],
+		NULL AS [secondary!6!payer-responsibility-code],
+		NULL AS [secondary!6!plan-name],
+		NULL AS [secondary!6!group-number],
+		NULL AS [secondary!6!policy-numer],
+		NULL AS [secondary!6!payer-name],
+		NULL AS [secondary!6!payer-identifier],
+		NULL AS [secondary!6!payer-contact-name],
+		NULL AS [secondary!6!payer-contact-phone],
+		NULL AS [secondary!6!payer-paid-flag],
+		NULL AS [secondary!6!payer-paid-amount],
+		NULL AS [service!7!service-id],
+		NULL AS [service!7!control-number],
+		NULL AS [service!7!procedure-code],
+		NULL AS [service!7!service-date],
+		NULL AS [service!7!service-charge-amount],
+		NULL AS [service!7!service-unit-count],
+		NULL AS [service!7!place-of-service-code],
+		NULL AS [service!7!procedure-modifier-1],
+		NULL AS [service!7!procedure-modifier-2],
+		NULL AS [service!7!procedure-modifier-3],
+		NULL AS [service!7!procedure-modifier-4],
+		NULL AS [service!7!diagnosis-pointer-1],
+		NULL AS [service!7!diagnosis-pointer-2],
+		NULL AS [service!7!diagnosis-pointer-3],
+		NULL AS [service!7!diagnosis-pointer-4],
+		NULL AS [adjudication!8!adjudication-id],
+		NULL AS [adjudication!8!payer-identifier],
+		NULL AS [adjudication!8!paid-amount],
+		NULL AS [adjudication!8!paid-unit-count],
+		NULL AS [adjudication!8!paid-date],
+		NULL AS [adjudication!8!payer-adjusted-flag],
+		NULL AS [adjudication!8!adjustment-reason-1],
+		NULL AS [adjudication!8!adjustment-amount-1],
+		NULL AS [adjudication!8!adjustment-reason-2],
+		NULL AS [adjudication!8!adjustment-amount-2],
+		NULL AS [adjudication!8!adjustment-reason-3],
+		NULL AS [adjudication!8!adjustment-amount-3],
+		NULL AS [adjudication!8!adjustment-reason-4],
+		NULL AS [adjudication!8!adjustment-amount-4],
+		NULL AS [adjudication!8!adjustment-reason-5],
+		NULL AS [adjudication!8!adjustment-amount-5],
+		NULL AS [adjudication!8!adjustment-reason-6],
+		NULL AS [adjudication!8!adjustment-amount-6]
+
+		FROM	@t_groupnumbers TT
+
+	-- END OF BILLING PROVIDER SECONDARY IDENTIFICATION
+
+
+	ORDER BY [transaction!1!transaction-id],
+		[transaction!1!control-number],
+		[billing!2!billing-id], 
+		[subscriber!3!subscriber-id], 
+		[subscriber!3!encounter-id], 
+		[patient!4!patient-id], 
+		[claim!5!claim-id], 
+		[secondary!6!secondary-id], 
+		[service!7!service-id], 
+		[adjudication!8!adjudication-id],
+		[secondaryident!9!id-qualifier]
+
+	FOR XML EXPLICIT
+
+	-- clean-up:
+
+	DELETE @t_groupnumbers
+	DELETE @t_providernumbers
+
+	DROP TABLE #ClaimBatchDiagnosesPointers
+
+END
+GO
+SET QUOTED_IDENTIFIER OFF 
+GO
+SET ANSI_NULLS ON 
+GO
+

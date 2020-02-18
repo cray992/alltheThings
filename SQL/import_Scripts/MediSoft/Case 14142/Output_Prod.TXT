@@ -1,0 +1,16 @@
+Customer : SSK, LLC Medical Billing Specialists.
+FogBugz Case ID : 14142
+
+Vendor Import ID : 1
+
+Rows Added in Doctor Table for Physicians .................................. 2
+Rows Added in Doctor Table for Referring Physicians ........................ 0
+Rows Added in Patient Table ................................................ 3619
+Rows Updated in Patient Table for Referring Physicians ..................... 3030
+Rows Added in InsuranceCompany Table ....................................... 186
+Rows Added in InsuranceCompanyPlan Table ................................... 195
+Rows Added in PatientCase Table ............................................ 3452
+Rows Added in PatientCase Table for Default Case ........................... 167
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 2411
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 421
+Rows Added in InsurancePolicy Table for Tertiary Insurance ................. 10

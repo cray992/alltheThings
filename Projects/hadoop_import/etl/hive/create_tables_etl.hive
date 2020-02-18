@@ -1,0 +1,136 @@
+CREATE DATABASE IF NOT EXISTS ${hive_etl};
+
+CREATE TABLE IF NOT EXISTS ${hive_etl}.ARSummary${etl_suffix}(
+`customerid` int,
+`practiceid` int,
+`doctorid` int,
+`insurancecompanyplanid` int,
+`patientid` int,
+`encounterid` int,
+`claimid` int,
+`servicedate` timestamp,
+`postingdate` timestamp,
+`firstbilleddate` timestamp,
+`lastbilleddate` timestamp,
+`servicelocationid` int,
+`payerscenarioid` int,
+`batchid` string,
+`planname` string,
+`unbilledcharges` double,
+`status` string,
+`adjustmentreasoncodes` string,
+`aramount` double,
+`credits` double,
+`typegroup` string,
+`typesort` int,
+`procedurecodedictionaryid` int,
+`procedurecode` string,
+`proceduremodifier1` string,
+`proceduremodifier2` string,
+`proceduremodifier3` string,
+`proceduremodifier4` string,
+`lastaction` string,
+`lastactiondate` timestamp,
+`balancetype` string)
+COMMENT 'Table in ORC format'
+PARTITIONED BY(partitionCustomerId int)
+ROW FORMAT DELIMITED
+ FIELDS TERMINATED BY '\001'
+STORED AS ORC;
+
+
+CREATE TABLE IF NOT EXISTS ${hive_etl}.ChargesDetail${etl_suffix}(
+  `customerid` int,
+  `claimid` int,
+  `serviceunitcount` decimal(19,4),
+  `servicechargeamount` decimal(19,4),
+  `amount` decimal(19,4),
+  `postingdate` timestamp)
+  COMMENT 'Table in ORC format'
+  PARTITIONED BY (partitionCustomerId int)
+  ROW FORMAT DELIMITED
+  FIELDS TERMINATED BY '\001'
+  STORED AS ORC;
+
+
+CREATE TABLE IF NOT EXISTS ${hive_etl}.Adjustments${etl_suffix}(
+ `customerid` int,
+ `claimid` int,
+ `adjustmentcode` int,
+ `description` string,
+ `postingdate` timestamp,
+ `procedurecode` string,
+ `charges` double,
+ `adjustments` double)
+COMMENT 'Table in ORC format'
+PARTITIONED BY(partitionCustomerId int)
+ROW FORMAT DELIMITED
+ FIELDS TERMINATED BY '\001'
+STORED AS ORC;
+
+
+CREATE TABLE IF NOT EXISTS ${hive_etl}.PaymentDetails${etl_suffix}(
+  `customerid` int,
+  `practiceid` int,
+  `paymentid` int,
+  `paymentmethodtype` string,
+  `paymentnumber` int,
+  `batchid` string,
+  `patientid` int,
+  `claimid` int,
+  `insurancecompanyplanid` int,
+  `dateofservice` timestamp,
+  `postingdate` timestamp,
+  `payertype` string,
+  `payername` string,
+  `paymentamount` double,
+  `appliedamount` double,
+  `unappliedamount` double,
+  `refundamount` double,
+  `paymenttype` string,
+  `sortorder` int,
+  `payertypecode` string,
+  `notes` string
+  )
+COMMENT 'Table in ORC format'
+PARTITIONED BY(partitionCustomerId int)
+ROW FORMAT DELIMITED
+  FIELDS TERMINATED BY '\001'
+STORED AS ORC;
+
+CREATE TABLE IF NOT EXISTS ${hive_etl}.PaymentClaimEob${etl_suffix}(
+  `claimId` int,
+  `type` string,
+  `amount` double,
+  `units` int,
+  `category` string,
+  `code` string,
+  `description` string
+  )
+COMMENT 'TABLE in orc format'
+PARTITIONED BY(partitioncustomerid int)
+ROW FORMAT DELIMITED
+  FIELDS TERMINATED BY '\001'
+STORED AS ORC;
+
+
+CREATE
+TABLE IF NOT EXISTS ${hive_etl}.ClaimLifecycle${etl_suffix}(
+`customerid` int,
+`claimid` int,
+`numofrejections` int,
+`numofdenials` int,
+`settledclaim` int,
+`status` string,
+`claimcreateddate` timestamp,
+`firstbilleddate` timestamp,
+`lastbilleddate` timestamp,
+`lastrejectiondate` timestamp,
+`lastdenialdate` timestamp,
+`claimsettleddate` timestamp)
+
+COMMENT 'Table in ORC format'
+PARTITIONED BY(partitionCustomerId int)
+ROW FORMAT DELIMITED
+ FIELDS TERMINATED BY '\001'
+STORED AS ORC;

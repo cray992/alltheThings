@@ -1,0 +1,3 @@
+CREATE NONCLUSTERED INDEX IX_AppointmentReasonDefaultResource_AppointmentReasonID
+ON AppointmentReasonDefaultResource (AppointmentReasonID)
+GO

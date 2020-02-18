@@ -1,0 +1,18 @@
+ADD JAR ${hdp_import_home}/jars/hdp-data-import-1.0.0.1.jar;
+CREATE TEMPORARY FUNCTION PaymentClaimEob as 'com.kareo.hive.PaymentClaimEob';
+
+ALTER TABLE ${hive_etl}.paymentclaimeob${etl_suffix} DROP PARTITION (partitioncustomerid > 0);
+
+INSERT OVERWRITE TABLE ${hive_etl}.paymentclaimeob${etl_suffix} PARTITION(partitioncustomerid)
+SELECT
+    paymentclaims.claimid as claimid,
+    paymentclaims.type as type,
+    paymentclaims.amount as amount,
+    paymentclaims.units as units,
+    paymentclaims.category as category,
+    paymentclaims.code as code,
+    paymentclaims.description as description,
+    paymentclaims.partitioncustomerid as partitioncustomerid
+FROM ${hive_global}.paymentclaim${staging_suffix} PC
+lateral view outer explode(PaymentClaimEob(PC.eobxml, PC.partitioncustomerid, PC.claimid)) items as paymentclaims
+WHERE PC.eobxml is not null;

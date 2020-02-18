@@ -1,0 +1,112 @@
+
+DROP TABLE IF EXISTS Receipts;
+DROP TABLE IF EXISTS Refunds;
+DROP TABLE IF EXISTS Capitated;
+DROP TABLE IF EXISTS ClaimEncounter;
+DROP TABLE IF EXISTS RESULT;
+
+CREATE TABLE IF NOT EXISTS Receipts AS
+    SELECT P.partitioncustomerid, P.PaymentID, CA.ClaimID, SUM(CA.Amount) TotalApplied FROM ${hive_global}.Payment${staging_suffix} P
+        LEFT JOIN ${hive_global}.ClaimAccounting${staging_suffix} CA ON P.PracticeID = CA.PracticeID AND P.PaymentID = CA.PaymentID AND CA.ClaimTransactionTypeCode = 'PAY' AND CA.partitioncustomerid = P.partitioncustomerid
+    GROUP BY P.partitioncustomerid, P.PaymentID, CA.ClaimID;
+
+CREATE TABLE IF NOT EXISTS Refunds AS
+    SELECT R.partitioncustomerid, RTP.PaymentID, SUM(RTP.Amount) Refund
+    From ${hive_global}.Refund${staging_suffix} R
+        INNER JOIN ${hive_global}.RefundToPayments${staging_suffix} RTP ON R.RefundID = RTP.RefundID AND RTP.partitioncustomerid = R.partitioncustomerid
+        INNER JOIN Receipts RP ON RTP.PaymentID = RP.PaymentID AND RP.partitioncustomerid = RTP.partitioncustomerid
+    GROUP BY R.partitioncustomerid, RTP.PaymentID;
+
+CREATE TABLE IF NOT EXISTS Capitated AS
+    SELECT CA.partitioncustomerid, CAP.PaymentID, SUM(CAP.Amount) CapitatedAmount
+    FROM ${hive_global}.CapitatedAccount${staging_suffix} CA
+        INNER JOIN ${hive_global}.CapitatedAccountToPayment${staging_suffix} CAP ON CA.CapitatedAccountID = CAP.CapitatedAccountID AND CAP.partitioncustomerid = CA.partitioncustomerid
+        INNER JOIN Receipts R ON CAP.PaymentID = R.PaymentID AND R.partitioncustomerid = CAP.partitioncustomerid
+    GROUP BY CA.partitioncustomerid, CAP.PaymentID;
+
+CREATE TABLE IF NOT EXISTS ClaimEncounter AS
+SELECT CL.partitioncustomerid,
+       CL.ClaimID,
+       EP.ProcedureDateOfService
+FROM ${hive_global}.Claim${staging_suffix} CL
+        JOIN ${hive_global}.EncounterProcedure${staging_suffix} EP ON CL.EncounterProcedureID = EP.EncounterProcedureID AND EP.partitioncustomerid = CL.partitioncustomerid
+        JOIN ${hive_global}.Encounter${staging_suffix} E ON E.EncounterID = EP.EncounterID AND E.partitioncustomerid = CL.partitioncustomerid
+WHERE E.EncounterStatusID = 3;
+
+CREATE TABLE IF NOT EXISTS RESULT AS
+    SELECT
+        PT.partitioncustomerid as customerId,
+        PR.practiceid,
+        PT.PaymentID,
+        PMC.Description AS PaymentMethodType,
+        PT.PaymentNumber,
+        PT.BatchID,
+        P.PatientID,
+        REC.ClaimID,
+        ICP.InsuranceCompanyPlanID,
+        CLEC.ProcedureDateOfService,
+        PT.PostingDate,
+        CASE WHEN PT.PayerTypeCode = 'P' THEN CAST('Patient' AS VARCHAR(9))
+        WHEN PT.PayerTypeCode = 'I' THEN CAST('Insurance' AS VARCHAR(9))
+        ELSE CAST('Other' AS VARCHAR(9))
+        END AS PayerType,
+        CASE WHEN PT.PayerTypeCode = 'P' THEN RTRIM(CAST(CONCAT(P.LastName + ', ', '') + CONCAT(P.FirstName,'') + CONCAT(' ' + P.MiddleName, '') AS STRING))  + ' (' + CAST(P.PatientID AS VARCHAR(30)) + ')'
+        WHEN PT.PayerTypeCode = 'I' THEN ICP.PlanName + ' (' + CAST(ICP.InsuranceCompanyPlanID AS VARCHAR(30)) + ')'
+        ELSE O.OtherName
+        END AS PayerName,
+        PT.PaymentAmount,
+        Rec.TotalApplied,
+        (PT.PaymentAmount - COALESCE(Rec.TotalApplied,0) - COALESCE(R.Refund,0) - COALESCE(C.CapitatedAmount,0)) AS UnAppliedAmount,
+        COALESCE(R.Refund, 0) AS RefundAmount,
+        PTC.Description  AS PayementType,
+        PTC.PayerTypeCode AS SortOrder,
+        PTC.Description PayerTypeCode,
+        PT.Description AS Notes
+    FROM ${hive_global}.Payment${staging_suffix} PT
+        INNER JOIN ${hive_global}.Practice${staging_suffix} PR ON PR.PracticeID = PT.PracticeID AND PR.partitioncustomerid = PT.partitioncustomerid
+        LEFT JOIN ${hive_global}.Patient${staging_suffix} P ON PT.PayerID = P.PatientID AND PT.PayerTypeCode = 'P' AND P.partitioncustomerid = PT.partitioncustomerid
+        LEFT JOIN ${hive_global}.InsuranceCompanyPlan${staging_suffix} ICP ON PT.PayerID = ICP.InsuranceCompanyPlanID AND PT.PayerTypeCode = 'I' AND ICP.partitioncustomerid = PT.partitioncustomerid
+        LEFT JOIN ${hive_global}.Other${staging_suffix} O ON PT.PayerID = O.OtherID AND PT.PayerTypeCode = 'O' AND O.partitioncustomerid = PT.partitioncustomerid
+        INNER JOIN ${hive_global}.PaymentMethodCode${staging_suffix} PMC ON PT.PaymentMethodCode = PMC.PaymentMethodCode AND PMC.partitioncustomerid = PT.partitioncustomerid
+        INNER JOIN Receipts Rec ON PT.PaymentID = Rec.PaymentID AND REC.partitioncustomerid = PT.partitioncustomerid
+        LEFT JOIN Refunds R ON PT.PaymentID = R.PaymentID AND R.partitioncustomerid = PT.partitioncustomerid
+        LEFT JOIN Capitated C ON C.PaymentID = PT.PaymentID AND C.partitioncustomerid = PT.partitioncustomerid
+        LEFT JOIN ${hive_global}.PayerTypeCode${staging_suffix} PTC ON PTC.PayerTypeCode = PT.PayerTypeCode AND PTC.partitioncustomerid = PT.partitioncustomerid
+        JOIN ClaimEncounter CLEC ON CLEC.ClaimID = REC.ClaimID AND CLEC.partitioncustomerid = PT.partitioncustomerid;
+
+
+ALTER TABLE ${hive_etl}.PaymentDetails${etl_suffix} DROP PARTITION (partitioncustomerid > 0);
+
+
+INSERT OVERWRITE TABLE ${hive_etl}.PaymentDetails${etl_suffix} PARTITION(partitioncustomerid)
+  SELECT
+    r.CustomerID,
+    r.PracticeID,
+    r.PaymentID,
+    r.PaymentMethodType,
+    r.PaymentNumber,
+    r.BatchID,
+    r.PatientID,
+    r.ClaimID,
+    r.InsuranceCompanyPlanID,
+    r.ProcedureDateOfService,
+    r.PostingDate,
+    r.PayerType,
+    r.PayerName,
+    r.PaymentAmount,
+    r.TotalApplied,
+    r.UnAppliedAmount,
+    r.RefundAmount,
+    r.PayementType,
+    r.SortOrder,
+    r.PayerTypeCode,
+    r.Notes,
+    r.customerId
+  FROM result r
+  DISTRIBUTE BY r.customerId;
+
+DROP TABLE IF EXISTS Receipts;
+DROP TABLE IF EXISTS Refunds;
+DROP TABLE IF EXISTS Capitated;
+DROP TABLE IF EXISTS ClaimEncounter;
+DROP TABLE IF EXISTS RESULT;

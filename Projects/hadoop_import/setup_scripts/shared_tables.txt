@@ -1,0 +1,13 @@
+clearinghouse
+clearinghousepayerslist
+customer
+medicarefeeschedulervu
+medicarefeeschedulervubatch
+productdomain_productpromocodes
+productdomain_productsubscription
+signup_accountdiscount
+signup_accountdiscounttype
+signup_attribution
+signup_order
+signup_providerlicense
+signup_providerlicenseproduct

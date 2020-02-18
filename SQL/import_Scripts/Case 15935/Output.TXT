@@ -1,0 +1,190 @@
+Vendor Import ID : 14
+
+Rows Added in Patient Table ................................................ 3962
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 3962
+Rows Updated in Patient Table for Referring Physician ...................... 2793
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3962
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3440
+
+Vendor Import ID : 15
+
+Rows Added in Patient Table ................................................ 3963
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3963
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3426
+
+Vendor Import ID : 16
+
+Rows Added in Patient Table ................................................ 3963
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3963
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3422
+
+
+Vendor Import ID : 17
+
+Rows Added in Patient Table ................................................ 3963
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3963
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3422
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 1303
+
+
+Vendor Import ID : 18
+
+Rows Added in Patient Table ................................................ 3963
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3963
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3422
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 1303
+Rows Added in InsurancePolicy Table for Tertirary Insurance ................ 44
+
+
+Vendor Import ID : 19
+
+Rows Added in Patient Table ................................................ 3961
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3961
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3420
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 1302
+Rows Added in InsurancePolicy Table for Tertirary Insurance ................ 44
+
+
+Vendor Import ID : 21
+
+Rows Added in Patient Table ................................................ 3961
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3961
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3420
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 1302
+Rows Added in InsurancePolicy Table for Tertirary Insurance ................ 44
+Rows Updated in PatientCase Table for Self-Pay ............................. 541
+
+
+Vendor Import ID : 24
+
+Rows Added in Patient Table ................................................ 3961
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3961
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3420
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 1302
+Rows Added in InsurancePolicy Table for Tertirary Insurance ................ 44
+Rows Updated in PatientCase Table for Self-Pay ............................. 541
+Rows Added in Employers Table .............................................. 681
+Rows Updated in Patient Table for EmployerID ............................... 930
+
+
+
+Vendor Import ID : 27
+
+Rows Added in Patient Table ................................................ 3961
+Rows Added in Doctor Table for Provider .................................... 1
+Rows Added in Doctor Table for NPI (Provider) .............................. 1
+Rows Added in Doctor Table for MedicaidID (Provider) ....................... 1
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 11
+Rows Updated in Patient Table for Referring Physician ...................... 8
+Rows Added in InsuranceCompany Table ....................................... 1078
+Rows Added in InsuranceCompanyPlan Table ................................... 1078
+Rows Added in PatientCase Table ............................................ 3961
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3420
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 1302
+Rows Added in InsurancePolicy Table for Tertirary Insurance ................ 44
+Rows Updated in PatientCase Table for Self-Pay ............................. 541
+Rows Added in Employers Table .............................................. 681
+Rows Updated in Patient Table for EmployerID ............................... 930
+
+
+Production.
+-----------
+
+Vendor Import ID : 51
+
+Rows Added in Patient Table ................................................ 3961
+Rows Added in Doctor Table for Referring Physicians ........................ 974
+Rows Added in Doctor Table for NPI (Referring Physician) ................... 796
+Rows Added in Doctor Table for MedicaidID (Referring Physician) ............ 169
+Rows Updated in Patient Table for Rendering Provider ....................... 3961
+Rows Updated in Patient Table for Referring Physician ...................... 2832
+Rows Added in InsuranceCompany Table ....................................... 1074
+Rows Added in InsuranceCompanyPlan Table ................................... 1074
+Rows Added in PatientCase Table ............................................ 3961
+Rows Added in InsurancePolicy Table for Primary Insurance .................. 3420
+Rows Added in InsurancePolicy Table for Secondary Insurance ................ 1302
+Rows Added in InsurancePolicy Table for Tertirary Insurance ................ 44
+Rows Updated in PatientCase Table for Self-Pay ............................. 541
+Rows Added in Employers Table .............................................. 644
+Rows Updated in Patient Table for EmployerID ............................... 930

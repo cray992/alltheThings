@@ -1,0 +1,40 @@
+--Run in SQL Server
+
+USE superbill_shared
+GO
+SELECT p.* FROM dbo.Customer c 
+	INNER join dbo.ProductDomain_ProductSubscription p ON 
+		p.CustomerId = c.CustomerID AND 
+		c.CustomerType = 'n' AND 
+		c.PartnerID = 3 AND 
+		p.ProductId = 1
+WHERE c.customerid IN (SELECT ps.CustomerID FROM dbo.ProductDomain_ProductSubscription ps WHERE ps.ProductId= 6 AND ps.DeactivationDate IS NULL)
+AND p.DeactivationDate IS NOT null
+
+
+
+
+--Run in Oracle
+
+create table temp_c (customer_id int);
+insert into temp_c 
+select pf.customerid
+from healthcare.patients p
+    inner join ecomment.enterprise e on 
+        e.enterprise_id = p.enterprise_id
+    inner join pf_practices pf on 
+        pf.customerid = e.customer_id
+--Notes
+    --inner join healthcare.notes n on 
+    --n.patient_id = p.patients_id
+--ERxs
+    INNER JOIN HEALTHCARE.PATIENT_MEDICATIONS M ON 
+    M.PATIENT_ID=P.PATIENTS_ID
+    INNER JOIN HEALTHCARE.SURESCRIPTS_ORDERS S ON 
+    S.ID=M.ID
+group by pf.customerid
+having count(p.patients_id)>10
+;
+commit;
+select --count(distinct 
+distinct c.customer_id as pf_customer_count from temp_c c ;

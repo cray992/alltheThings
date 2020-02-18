@@ -1,0 +1,1 @@
+update supporttype set ProductCaptionAndPrice='Support (Max Edition)' where SupportTypeCaption='Phone'

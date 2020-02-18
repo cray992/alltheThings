@@ -1,0 +1,317 @@
+SET QUOTED_IDENTIFIER ON 
+GO
+SET ANSI_NULLS ON 
+GO
+if exists (select * from dbo.sysobjects where id = object_id(N'[dbo].[DashboardDataProvider_GetKeyIndicators]') and OBJECTPROPERTY(id, N'IsProcedure') = 1) drop procedure [dbo].[DashboardDataProvider_GetKeyIndicators]
+GO
+
+
+
+
+GO
+SET QUOTED_IDENTIFIER ON 
+GO
+SET ANSI_NULLS ON 
+GO
+
+--RETURN
+--
+--CREATE PROC [DashboardDataProvider_GetKeyIndicators]
+--	@PracticeID int = NULL,
+--	@BeginDate datetime = NULL,
+--	@EndDate datetime = NULL
+--
+--AS 
+--/*
+--DECLARE 
+--	@PracticeID int,
+--	@BeginDate datetime,
+--	@EndDate datetime
+--SELECT
+--	@PracticeID = 65,
+--	@BeginDate = '5/1/06',
+--	@EndDate = '5/31/06'
+--*/
+--
+--	DECLARE @EndOfDayEndDate DATETIME
+--	SET @EndOfDayEndDate=DATEADD(S,-1,DATEADD(D,1,dbo.fn_DateOnly( @EndDate )))
+--
+--	DECLARE @ReportResults TABLE(ProviderID INT, ProviderFullName VARCHAR(256), Procedures INT, Charges MONEY, Adjustments MONEY,
+--				     Receipts MONEY, Refunds MONEY, ARBalance MONEY, DaysInAR DECIMAL(10,2), DaysRevenueOutstanding DECIMAL(18,2),
+--				     DaysToSubmission DECIMAL(10,2), DaysToBill DECIMAL(10,2),  TotalRefundsPrior MONEY)
+--	INSERT @ReportResults(ProviderID, ProviderFullName)
+--	SELECT DoctorID ProviderID, RTRIM(ISNULL(FirstName + ' ','') + ISNULL(MiddleName + ' ', '')) + ISNULL(' ' + LastName,'') + ISNULL(', ' + dbo.fn_ZeroLengthStringToNull(Degree), '') AS ProviderFullname
+--	FROM Doctor
+--	WHERE PracticeID=@PracticeID
+--		AND [External] = 0
+--	
+--	DECLARE @ClaimAmounts TABLE(ProviderID INT, Procedures INT, Charges MONEY, Adjustments MONEY)
+--	INSERT @ClaimAmounts(ProviderID, Procedures, Charges, Adjustments)
+--	SELECT ProviderID, 
+--	COUNT(CASE WHEN ClaimTransactionTypeCode='CST' THEN 1 ELSE NULL END) Procedures,
+--	SUM(CASE WHEN ClaimTransactionTypeCode='CST' THEN Amount ELSE 0 END) Charges,
+--	SUM(CASE WHEN ClaimTransactionTypeCode='ADJ' THEN Amount ELSE 0 END) Adjustments
+--	FROM ClaimAccounting ca 
+--			LEFT OUTER JOIN PaymentClaimTransaction PCT ON  pct.PracticeID = @PracticeID AND CA.ClaimTransactionID=PCT.ClaimTransactionID -- AND CA.ClaimTransactionTypeCode = 'ADJ'
+--			LEFT JOIN Payment P ON  p.PracticeID = @PracticeID AND PCT.PaymentID=P.PaymentID
+--	WHERE ca.PracticeID=@PracticeID 
+--			AND ISNULL(p.PostingDate, CA.PostingDate) BETWEEN @BeginDate AND @EndOfDayEndDate
+--			AND ClaimTransactionTypeCode IN ('ADJ','CST')
+--	GROUP BY ProviderID
+--
+--	UPDATE RR SET Charges=CA.Charges, Adjustments=CA.Adjustments
+--	FROM @ReportResults RR INNER JOIN @ClaimAmounts CA ON RR.ProviderID=CA.ProviderID
+--	
+--	DECLARE @Receipts TABLE(ProviderID INT, ClaimTransactionID INT, ClaimID INT, PostingDate DATETIME, Amount MONEY)
+--	INSERT @Receipts(ProviderID, ClaimTransactionID, ClaimID, PostingDate, Amount)
+--	SELECT ProviderID, CA.ClaimTransactionID, CA.ClaimID, P.PostingDate, Amount
+--	FROM ClaimAccounting CA INNER JOIN PaymentClaimTransaction PCT
+--	ON CA.ClaimTransactionID=PCT.ClaimTransactionID
+--	INNER JOIN Payment P ON PCT.PaymentID=P.PaymentID
+--	WHERE CA.PracticeID=@PracticeID 
+--		AND p.PostingDate BETWEEN @BeginDate AND @EndOfDayEndDate
+--		AND ClaimTransactionTypeCode='PAY'
+--
+--	DECLARE @ReceiptsSummarized TABLE(ProviderID INT, Receipts MONEY)
+--	INSERT @ReceiptsSummarized(ProviderID, Receipts)
+--	SELECT ProviderID, SUM(R.Amount) Receipts
+--	FROM @Receipts R
+--	GROUP BY ProviderID
+--	
+--	UPDATE RR SET Receipts=RS.Receipts
+--	FROM @ReportResults RR INNER JOIN @ReceiptsSummarized RS ON RR.ProviderID=RS.ProviderID
+--	
+--	--Get Refund Totals For use in report sum, or do check to see if 1 provider only which does not require summary
+--	DECLARE @Refunds TABLE(PracticeID INT, Refunds MONEY, TotalRefundsPrior MONEY)
+--	INSERT @Refunds(PracticeID, Refunds, TotalRefundsPrior)
+--	SELECT PracticeID, 
+--	SUM( CASE WHEN PostingDate BETWEEN @BeginDate AND @EndOfDayEndDate THEN RefundAmount ELSE 0 END ) ThisPeriod,
+--	SUM( CASE WHEN PostingDate < @BeginDate THEN RefundAmount ELSE 0 END ) PriorRefunds
+--	FROM Refund
+--	WHERE PracticeID=@PracticeID AND PostingDate <= @EndOfDayEndDate
+--	GROUP BY PracticeID
+--
+--	--Set AR Value
+--	DECLARE @AR TABLE(ProviderID INT, ARAmount MONEY)
+--	INSERT @AR(ProviderID, ARAmount)
+--	SELECT ProviderID, 			
+--			SUM( CASE WHEN ClaimTransactionTypeCode = 'CST' THEN AMOUNT ELSE -1*AMOUNT END )
+--	FROM ClaimAccounting ca 
+--			LEFT OUTER JOIN PaymentClaimTransaction PCT ON pct.PracticeID = @PracticeID AND CA.ClaimTransactionID=PCT.ClaimTransactionID
+--			LEFT JOIN Payment P ON p.PracticeID = @PracticeID AND PCT.PaymentID=P.PaymentID
+--	WHERE CA.PracticeID=@PracticeID 
+--			AND ISNULL(p.PostingDate, CA.PostingDate) <= @EndOfDayEndDate 
+--	GROUP BY ProviderID
+--	HAVING 0 <> SUM( CASE WHEN ClaimTransactionTypeCode = 'CST' THEN AMOUNT ELSE -1*AMOUNT END )
+--	
+--	UPDATE RR SET ARBalance=ISNULL(ARAmount,0)
+--	FROM @ReportResults RR INNER JOIN @AR AR ON RR.ProviderID=AR.ProviderID
+--	
+--	--Prep the Days in AR Calc
+--	DECLARE @DaysInARI TABLE(ProviderID INT, ClaimID INT, Amount MONEY, Weighted MONEY)
+--	INSERT @DaysInARI(ProviderID, ClaimID, Amount, Weighted)
+--	SELECT R.ProviderID, R.ClaimID, SUM(R.Amount) Amount, SUM(R.Amount)*AVG(DATEDIFF(D,CA.PostingDate, R.PostingDate)) Weighted
+--	FROM ClaimAccounting CA INNER JOIN @Receipts R ON CA.ClaimID=R.ClaimID
+--	WHERE ClaimTransactionTypeCode='BLL'
+--	GROUP BY R.ProviderID, R.ClaimID
+--	
+--	DECLARE @DaysInARII TABLE(ProviderID INT, DaysInAR DECIMAL(10,2))
+--	INSERT @DaysInARII(ProviderID, DaysInAR)
+--	SELECT ProviderID, CASE WHEN SUM(Amount)=0 THEN 0 ELSE SUM(Weighted)/SUM(Amount) END DaysInAR
+--	FROM @DaysInARI
+--	GROUP BY ProviderID
+--	
+--	UPDATE RR SET DaysInAR=D.DaysInAR
+--	FROM @ReportResults RR INNER JOIN @DaysInARII D ON RR.ProviderID=D.ProviderID
+--	
+--	--Prep the DaysRevenueOutstanding Calc
+--	DECLARE @DaysRevenueOutstandingI TABLE(ProviderID INT, ClaimID INT, Amount MONEY, Weighted MONEY)
+--	INSERT @DaysRevenueOutstandingI(ProviderID, ClaimID, Amount, Weighted)
+--	SELECT R.ProviderID, R.ClaimID, SUM(Amount) Amount, SUM(Amount)*AVG(DATEDIFF(D,ProcedureDateOfService, R.PostingDate)) Weighted
+--	FROM Claim C INNER JOIN @Receipts R ON C.ClaimID=R.ClaimID
+--	INNER JOIN EncounterProcedure EP ON C.EncounterProcedureID=EP.EncounterProcedureID
+--	GROUP BY R.ProviderID, R.ClaimID
+--	
+--	DECLARE @DaysRevenueOutstandingII TABLE(ProviderID INT, DaysRevenueOutstanding DECIMAL(10,2))
+--	INSERT @DaysRevenueOutstandingII(ProviderID, DaysRevenueOutstanding)
+--	SELECT ProviderID, CASE WHEN SUM(Amount)=0 THEN 0 ELSE SUM(Weighted)/SUM(Amount) END DaysRevenueOutstanding
+--	FROM @DaysRevenueOutstandingI
+--	GROUP BY ProviderID
+--	
+--	UPDATE RR SET DaysRevenueOutstanding=D.DaysRevenueOutstanding
+--	FROM @ReportResults RR INNER JOIN @DaysRevenueOutstandingII D ON RR.ProviderID=D.ProviderID
+--	
+--	DECLARE @OtherDays TABLE(ProviderID INT, ClaimID INT, ProcedureDateOfService DATETIME, SubmittedDate DATETIME)
+--	INSERT @OtherDays(ProviderID, ClaimID, ProcedureDateOfService, SubmittedDate)
+--	SELECT DoctorID ProviderID, C.ClaimID, CAST(CONVERT(CHAR(10), ProcedureDateOfService,110) AS DATETIME) ProcedureDateOfService, 
+--	CAST(CONVERT(CHAR(10), E.SubmittedDate, 110) AS DATETIME) SubmittedDate
+--	FROM Encounter E INNER JOIN EncounterProcedure EP ON E.PracticeID=EP.PracticeID AND E.EncounterID=EP.EncounterID
+--	INNER JOIN Claim C ON EP.PracticeID=C.PracticeID AND EP.EncounterProcedureID=C.EncounterProcedureID
+--	INNER JOIN ClaimAccounting CA ON C.PracticeID=CA.PracticeID AND C.ClaimID=CA.ClaimID
+--	WHERE CA.PracticeID=@PracticeID AND CA.PostingDate<=@EndDate AND Status=0 AND ClaimTransactionTypeCode='CST'
+--	
+--	DECLARE @DaysToSubmission TABLE(ProviderID INT, DaysToSubmission DECIMAL(10,2))
+--	INSERT @DaysToSubmission(ProviderID, DaysToSubmission)
+--	SELECT ProviderID, AVG(DATEDIFF(D, ProcedureDateOfService, SubmittedDate)) DaysToSubmission
+--	FROM @OtherDays
+--	GROUP BY ProviderID
+--	
+--	UPDATE RR SET DaysToSubmission=DS.DaysToSubmission
+--	FROM @ReportResults RR INNER JOIN @DaysToSubmission DS ON RR.ProviderID=DS.ProviderID
+--	
+--	DECLARE @DaysToBill TABLE(ProviderID INT, DaysToBill DECIMAL(10,2))
+--	INSERT @DaysToBill(ProviderID, DaysToBill)
+--	SELECT OD.ProviderID, AVG(DATEDIFF(D, SubmittedDate, PostingDate))
+--	FROM ClaimAccounting CA INNER JOIN @OtherDays OD ON CA.ClaimID=OD.ClaimID
+--	WHERE ClaimTransactionTypeCode='BLL'
+--	GROUP BY OD.ProviderID
+--	
+--	UPDATE RR SET DaysToBill=DB.DaysToBill
+--	FROM @ReportResults RR INNER JOIN @DaysToBill DB ON RR.ProviderID=DB.ProviderID
+--		
+--
+--		INSERT @ReportResults(ProviderID, ProviderFullName, Charges, Adjustments, Receipts)
+--		SELECT 0 ProviderID, NULL ProviderFullName, SUM(Charges) Charges,
+--		SUM(Adjustments) Adjustments, SUM(Receipts) Receipts
+--		FROM @ReportResults
+--		
+--		DELETE @ReportResults WHERE ProviderID<>0
+--		
+--		UPDATE RR SET Refunds=ISNULL(R.Refunds,0),
+--			TotalRefundsPrior=ISNULL(r.TotalRefundsPrior, 0)
+--		FROM @ReportResults RR INNER JOIN @Refunds R ON @PracticeID=R.PracticeID
+--		
+--		DECLARE @DaysInARSum TABLE(ProviderID INT, DaysInAR DECIMAL(10,2))
+--		INSERT @DaysInARSum(ProviderID, DaysInAR)
+--		SELECT 0 ProviderID, CASE WHEN SUM(Amount)=0 THEN 0 ELSE SUM(Weighted)/SUM(Amount) END DaysInAR
+--		FROM @DaysInARI
+--		
+--		DECLARE @ARSum TABLE(ProviderID INT, ARBalance MONEY)
+--		INSERT @ARSum(ProviderID, ARBalance)
+--		SELECT 0 ProviderID, SUM(ARAmount) ARBalance
+--		FROM @AR
+--
+--		UPDATE RR SET ARBalance=ARS.ARBalance
+--		FROM @ReportResults RR INNER JOIN @ARSum ARS ON RR.ProviderID=ARS.ProvideriD
+--
+--		UPDATE RR SET DaysInAR=D.DaysInAR
+--		FROM @ReportResults RR INNER JOIN @DaysInARSum D ON RR.ProviderID=D.ProviderID
+--		
+--		DECLARE @DaysRevenueOutstandingSum TABLE(ProviderID INT, DaysRevenueOutstanding DECIMAL(10,2))
+--		INSERT @DaysRevenueOutstandingSum(ProviderID, DaysRevenueOutstanding)
+--		SELECT 0 ProviderID, CASE WHEN SUM(Amount)=0 THEN 0 ELSE SUM(Weighted)/SUM(Amount) END DaysRevenueOutstanding
+--		FROM @DaysRevenueOutstandingI
+--		
+--		UPDATE RR SET DaysRevenueOutstanding=D.DaysRevenueOutstanding
+--		FROM @ReportResults RR INNER JOIN @DaysRevenueOutstandingSum D ON RR.ProviderID=D.ProviderID
+--		
+--		DECLARE @DaysToSubmissionSum TABLE(ProviderID INT, DaysToSubmission DECIMAL(10,2))
+--		INSERT @DaysToSubmissionSum(ProviderID, DaysToSubmission)
+--		SELECT 0 ProviderID, AVG(DATEDIFF(D, ProcedureDateOfService, SubmittedDate)) DaysToSubmission
+--		FROM @OtherDays
+--		
+--		UPDATE RR SET DaysToSubmission=DS.DaysToSubmission
+--		FROM @ReportResults RR INNER JOIN @DaysToSubmissionSum DS ON RR.ProviderID=DS.ProviderID
+--		
+--		DECLARE @DaysToBillSum TABLE(ProviderID INT, DaysToBill DECIMAL(10,2))
+--		INSERT @DaysToBillSum(ProviderID, DaysToBill)
+--		SELECT 0 ProviderID, AVG(DATEDIFF(D, SubmittedDate, PostingDate))
+--		FROM ClaimAccounting CA INNER JOIN @OtherDays OD ON CA.ClaimID=OD.ClaimID
+--		WHERE ClaimTransactionTypeCode='BLL'
+--		
+--		UPDATE RR SET DaysToBill=DB.DaysToBill
+--		FROM @ReportResults RR INNER JOIN @DaysToBillSum DB ON RR.ProviderID=DB.ProviderID
+--		
+--
+--
+---- Calc Unapplied Payments
+--	DECLARE @PriorReceipts TABLE(ProviderID INT, ClaimTransactionID INT, ClaimID INT, PostingDate DATETIME, Amount MONEY, PayerTypeCode varchar(50) )
+--	INSERT @PriorReceipts(ProviderID, ClaimTransactionID, ClaimID, PostingDate, Amount, PayerTypeCode)
+--	SELECT ProviderID, CA.ClaimTransactionID, CA.ClaimID, P.PostingDate, Amount, PayerTypeCode
+--	FROM ClaimAccounting CA INNER JOIN PaymentClaimTransaction PCT
+--	ON pct.PracticeID = @PracticeID AND CA.ClaimTransactionID=PCT.ClaimTransactionID
+--	INNER JOIN Payment P ON p.PracticeID = @PracticeID AND PCT.PaymentID=P.PaymentID
+--	WHERE CA.PracticeID=@PracticeID 
+--	AND p.PostingDate < @BeginDate 
+--	AND ClaimTransactionTypeCode='PAY'
+--
+--	DECLARE @PriorReceiptsSummarized TABLE(ProviderID INT, ReceiptsI MONEY, ReceiptsP MONEY, ReceiptsO MONEY, ReceiptsTotal MONEY)
+--	INSERT @PriorReceiptsSummarized(ProviderID, ReceiptsI, ReceiptsP, ReceiptsO, ReceiptsTotal)
+--	SELECT ProviderID, 
+--	SUM(CASE WHEN PayerTypeCode='I' THEN R.Amount ELSE 0 END) ReceiptsI,
+--	SUM(CASE WHEN PayerTypeCode='P' THEN R.Amount ELSE 0 END) ReceiptsP,
+--	SUM(CASE WHEN PayerTypeCode='O' THEN R.Amount ELSE 0 END) ReceiptsO,
+--	SUM(R.Amount) ReceiptsTotal
+--	FROM @PriorReceipts R
+--	GROUP BY ProviderID
+--
+--
+--UPDATE RR
+--SET				ARBalance = isnull(ARBalance, 0) - ( (isnull( AllPayment.ReceiptsInPeriod, 0) - ISNULL(AppliedPayment.ReceiptsTotal, 0)) +( isnull( AllPayment.ReceiptsPriorPeriod , 0) - ISNULL(PriorAppliedPayment.ReceiptsTotal, 0) )  ),
+--				Receipts =isnull( AllPayment.ReceiptsInPeriod, 0) 
+--FROM @ReportResults rr INNER JOIN 
+--(
+--		SELECT 0 ProviderID,
+--				SUM(CASE WHEN PayerTypeCode='I' AND PostingDate BETWEEN @BeginDate AND @EndOfDayEndDate THEN PaymentAmount ELSE 0 END) ReceiptsI,
+--				SUM(CASE WHEN PayerTypeCode='P' AND PostingDate BETWEEN @BeginDate AND @EndOfDayEndDate THEN PaymentAmount ELSE 0 END) ReceiptsP,
+--				SUM(CASE WHEN PayerTypeCode='O' AND PostingDate BETWEEN @BeginDate AND @EndOfDayEndDate THEN PaymentAmount ELSE 0 END) ReceiptsO,
+--				SUM(CASE WHEN PostingDate BETWEEN @BeginDate AND @EndOfDayEndDate THEN PaymentAmount END) ReceiptsInPeriod,
+--				SUM(CASE WHEN PostingDate < @BeginDate THEN PaymentAmount END) ReceiptsPriorPeriod,
+--				SUM(PaymentAmount) AS PaymentAmountALL
+--		FROM Payment P
+--		WHERE P.PracticeID=@PracticeID AND PostingDate <= @EndOfDayEndDate 
+--	) as AllPayment ON rr.ProviderID = AllPayment.ProviderID INNER JOIN 
+--	(
+--
+--		SELECT 0 ProviderID,
+--				sum(Receipts) ReceiptsTotal
+--		FROM @ReceiptsSummarized
+--	) as AppliedPayment on AppliedPayment.ProviderID = AllPayment.ProviderID INNER JOIN
+--	(
+--		
+--		SELECT 0 ProviderID,
+--				sum(ReceiptsTotal) ReceiptsTotal
+--		FROM @PriorReceiptsSummarized
+--	) as PriorAppliedPayment on PriorAppliedPayment.ProviderID = AllPayment.ProviderID
+--WHERE rr.ProviderID = 0
+--
+--
+--		SELECT ProviderID, 
+--				ISNULL(Procedures, 0) Procedures,
+--				ISNULL(Charges,0) Charges, 
+--				ISNULL(Adjustments,0) Adjustments, 
+--				ISNULL(Receipts,0) Receipts, 
+--				ISNULL(Refunds,0) Refunds, 
+--				ISNULL(TotalRefundsPrior, 0) + ISNULL(Refunds,0)+ISNULL(ARBalance,0)  ARBalance,
+--				ISNULL(DaysInAR,0) DaysInAR, 
+--				ISNULL(DaysRevenueOutstanding,0) DaysRevenueOutstanding, 
+--				ISNULL(DaysToSubmission,0) DaysToSubmission, 
+--				ISNULL(DaysToBill,0) DaysToBill
+--		FROM @ReportResults
+--
+--RETURN
+--
+--GO
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--

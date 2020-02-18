@@ -1,0 +1,123 @@
+Drop Table if exists ClaimStatus;
+Drop Table if exists Rejections;
+Drop Table if exists Denials;
+Drop Table if exists Settled;
+Drop Table if exists Created;
+Drop Table if exists Billed;
+
+Create  Table if not exists ClaimStatus as
+      SELECT distinct c.partitioncustomerid CustomerID, C.ClaimID,  C.PracticeID, CASE
+        WHEN CE.ClaimTransactionTypeCode = 'DEN' THEN
+          CASE
+               WHEN C.ClaimStatusCode = 'P' AND (CAF.FollowUpDate IS NOT NULL AND CAF.FollowUpDate > current_date) THEN 'Pending insurance'
+               ELSE 'Denied'
+          END
+        WHEN CE.ClaimTransactionTypeCode = 'BLL' THEN
+          CASE
+            WHEN CAF.FollowUpDate IS NOT NULL AND CAF.FollowUpDate > current_date THEN 'Pending insurance'
+            ELSE 'No Response'
+          END
+        WHEN CE.ClaimTransactionTypeCode = 'RJT' THEN 'Rejected'
+        WHEN CE.ClaimTransactionTypeCode IS NOT NULL THEN 'Error'
+        WHEN C.ClaimStatusCode = 'C' THEN 'Completed'
+        WHEN C.ClaimStatusCode = 'P' THEN
+          CASE
+            WHEN CAF.FollowUpDate IS NOT NULL AND CAF.FollowUpDate <= current_date THEN 'No Response'
+            WHEN CA.InsurancePolicyID IS NOT NULL THEN 'Pending insurance'
+            ELSE 'Pending patient'
+          END
+        WHEN C.ClaimStatusCode = 'R' THEN
+          CASE
+            WHEN CA.ClaimTransactionID IS NULL THEN 'Unassigned'
+            WHEN CA.InsurancePolicyID IS NULL THEN 'Ready to send statements'
+            ELSE 'Ready to send claims'
+          END
+        ELSE '*** Undefined'
+      END AS Status
+    FROM ${hive_global}.Claim${staging_suffix} C
+      LEFT JOIN ${hive_global}.ClaimAccounting_Errors${staging_suffix} CE ON CE.PracticeID = c.PracticeID AND CE.ClaimID = c.ClaimID and ce.partitioncustomerid=c.partitioncustomerid
+      LEFT JOIN ${hive_global}.ClaimAccounting_Assignments${staging_suffix} CA ON C.PracticeID = CA.PracticeID AND CA.LastAssignment=1 AND C.PatientID=CA.PatientID AND C.ClaimID=CA.ClaimID and c.partitioncustomerid=ca.partitioncustomerid
+      LEFT JOIN ${hive_global}.ClaimAccounting_FollowUp${staging_suffix} CAF ON CAF.PracticeID = C.PracticeID AND CAF.ClaimID = CA.ClaimID and caf.partitioncustomerid=c.partitioncustomerid;
+
+Create  Table if not exists Rejections as
+    Select
+      ct.partitioncustomerid,
+      ct.claimid,
+      count(*) as NumOfRejections,
+      MAX(ct.createddate) as LastRejectionDate
+    FROM ${hive_global}.claimtransaction${staging_suffix} ct
+    WHERE ct.claimtransactiontypecode = 'RJT'
+    GROUP BY ct.claimid, ct.partitioncustomerid;
+
+Create  Table if not exists Denials as
+    Select
+      ct.partitioncustomerid,
+      ct.claimid,
+      count(*) as NumOfDenials,
+      MAX(ct.createddate) as LastDenialDate
+FROM ${hive_global}.claimtransaction${staging_suffix} ct
+WHERE ct.claimtransactiontypecode = 'DEN'
+GROUP BY ct.claimid, ct.partitioncustomerid;
+
+Create Table if not exists Created as
+    Select
+    ct.partitioncustomerid,
+    ct.claimid,
+    MIN(ct.createddate) as ClaimCreatedDate
+FROM ${hive_global}.claimtransaction${staging_suffix} ct
+WHERE ct.claimtransactiontypecode = 'CST'
+GROUP BY ct.claimid, ct.partitioncustomerid;
+
+Create Table if not exists Settled as
+    Select
+    ct.partitioncustomerid,
+    ct.claimid,
+    MIN(ct.createddate) as ClaimSettledDate,
+    1 as SettledClaim
+FROM ${hive_global}.claimtransaction${staging_suffix} ct
+WHERE ct.claimtransactiontypecode = 'END'
+GROUP BY ct.claimid, ct.partitioncustomerid;
+
+Create Table if not exists Billed as
+    Select
+    ct.partitioncustomerid,
+    ct.claimid,
+    MIN(ct.createddate) as FirstBilledDate,
+    MAX(ct.createddate) as LastBilledDate
+FROM ${hive_global}.claimtransaction${staging_suffix} ct
+WHERE ct.claimtransactiontypecode = 'BLL'
+GROUP BY ct.claimid, ct.partitioncustomerid;
+
+
+ALTER TABLE ${hive_etl}.ClaimLifecycle${etl_suffix} DROP PARTITION (partitioncustomerid > 0);
+
+
+INSERT OVERWRITE TABLE ${hive_etl}.ClaimLifecycle${etl_suffix} PARTITION(partitioncustomerid)
+
+SELECT
+    cs.customerid,
+    cs.claimid,
+    r.NumOfRejections,
+    d.NumOfDenials,
+    s.SettledClaim,
+    cs.Status,
+    c.ClaimCreatedDate,
+    b.FirstBilledDate,
+    b.LastBilledDate,
+    r.LastRejectionDate,
+    d.LastDenialDate,
+    s.ClaimSettledDate,
+    cs.customerid
+FROM ClaimStatus cs
+LEFT JOIN Rejections r on r.partitioncustomerid = cs.customerid and r.claimid = cs.claimid
+LEFT JOIN Denials d on d.partitioncustomerid = cs.customerid and d.claimid = cs.claimid
+LEFT JOIN Settled s on s.partitioncustomerid = cs.customerid and s.claimid = cs.claimid
+LEFT JOIN Created c on c.partitioncustomerid = cs.customerid and c.claimid = cs.claimid
+LEFT JOIN Billed b on b.partitioncustomerid = cs.customerid and b.claimid = cs.claimid;
+
+Drop Table if exists ClaimStatus;
+Drop Table if exists Rejections;
+Drop Table if exists Denials;
+Drop Table if exists Settled;
+Drop Table if exists Created;
+Drop Table if exists Billed;

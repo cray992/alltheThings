@@ -1,0 +1,10 @@
+/*
+
+DATABASE UPDATE SCRIPT
+
+v1.13.1527 to v.1.13.1531
+
+*/
+
+ALTER TABLE EncounterDiagnosis
+ADD ListSequence INT NOT NULL DEFAULT 0

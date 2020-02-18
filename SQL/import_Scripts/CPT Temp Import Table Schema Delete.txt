@@ -1,0 +1,31 @@
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='CPTDATA' AND xtype='U')
+	DROP TABLE CPTDATA
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='HCPCSDATA' AND xtype='U')
+	DROP TABLE HCPCSDATA
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='HCPCSMods' AND xtype='U')
+	DROP TABLE HCPCSMods
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='HCPCSCodes' AND xtype='U')
+	DROP TABLE HCPCSCodes
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='HCPCSModMultData' AND xtype='U')
+	DROP TABLE HCPCSModMultData
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='HCPCSModMultSum' AND xtype='U')
+	DROP TABLE HCPCSModMultSum
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='HCPCSMultData' AND xtype='U')
+	DROP TABLE HCPCSMultData
+
+
+IF EXISTS(SELECT * FROM sysobjects WHERE name='HCPCSMultSum' AND xtype='U')
+	DROP TABLE HCPCSMultSum

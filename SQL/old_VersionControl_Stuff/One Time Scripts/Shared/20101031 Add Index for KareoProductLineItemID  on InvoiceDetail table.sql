@@ -1,0 +1,2 @@
+CREATE INDEX NCI_BillingInvoicing_InvoiceDetail_KareoProductLineItemID 
+ON BillingInvoicing_InvoiceDetail (KareoProductLineItemID)

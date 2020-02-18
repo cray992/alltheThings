@@ -1,0 +1,9 @@
+syntax: glob
+*.pyc
+*~
+*.orig
+.DS_Store
+hadoopimport/config.ini
+hadoopimport/logging.conf
+.idea/**
+target/

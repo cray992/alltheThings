@@ -1,0 +1,34 @@
+---
+fivetran_api:
+  id:
+  key:
+
+shared_db:
+  db: ''
+  host: ''
+  port: ''
+  user: ''
+  password: ''
+
+customer_query: |
+  SELECT TOP 5 DatabaseServerName as server,
+      DatabaseName as db,
+      DatabaseUsername as username,
+      DatabasePassword as password
+  FROM customer
+  WHERE DBActive=1 and CustomerType = 'n'
+  ORDER BY CustomerID
+
+generate_db_port: false
+
+connector_config:
+  service: 'sql_server'
+  group_id: 'dole_stat'
+  config:
+    user: ''
+    password: ''
+    port: ''
+    public_key: ''
+    tunnel_host: ''
+    tunnel_port: ''
+    tunnel_user: ''

@@ -1,0 +1,1 @@
+UPDATE Practice SET EStatementsVendorId=2 WHERE EStatementsVendorId IS NULL

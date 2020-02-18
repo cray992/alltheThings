@@ -1,0 +1,302 @@
+--BEGIN TRAN
+
+DECLARE @VendorImportID INT
+SET @VendorImportID=49
+
+--IF NOT EXISTS(SELECT sc.*
+--FROM sys.objects so inner join sys.columns sc
+--on so.object_id=sc.object_id
+--WHERE so.name='Department' AND so.type='U' AND sc.name='VendorID')
+--BEGIN
+--	ALTER TABLE Department ADD VendorID VARCHAR(50), VendorImportID INT
+--END 
+--
+--IF NOT EXISTS(SELECT sc.*
+--FROM sys.objects so inner join sys.columns sc
+--on so.object_id=sc.object_id
+--WHERE so.name='Contract' AND so.type='U' AND sc.name='VendorID')
+--BEGIN
+--	ALTER TABLE Contract ADD VendorID VARCHAR(50), VendorImportID INT
+--END 
+--
+--IF NOT EXISTS(SELECT sc.*
+--FROM sys.objects so inner join sys.columns sc
+--on so.object_id=sc.object_id
+--WHERE so.name='AppointmentReason' AND so.type='U' AND sc.name='VendorID')
+--BEGIN
+--	ALTER TABLE AppointmentReason ADD VendorID VARCHAR(50), VendorImportID INT
+--END
+--
+--IF NOT EXISTS(SELECT sc.*
+--FROM sys.objects so inner join sys.columns sc
+--on so.object_id=sc.object_id
+--WHERE so.name='PracticeResource' AND so.type='U' AND sc.name='VendorID')
+--BEGIN
+--	ALTER TABLE PracticeResource ADD VendorID VARCHAR(50), VendorImportID INT
+--END
+--
+--IF NOT EXISTS(SELECT sc.*
+--FROM sys.objects so inner join sys.columns sc
+--on so.object_id=sc.object_id
+--WHERE so.name='ServiceLocation' AND so.type='U' AND sc.name='VendorID')
+--BEGIN
+--	ALTER TABLE ServiceLocation ADD VendorID VARCHAR(50), VendorImportID INT
+--END
+--
+--IF NOT EXISTS(SELECT sc.*
+--FROM sys.objects so inner join sys.columns sc
+--on so.object_id=sc.object_id
+--WHERE so.name='Timeblock' AND so.type='U' AND sc.name='VendorID')
+--BEGIN
+--	ALTER TABLE Timeblock ADD VendorID VARCHAR(50), VendorImportID INT
+--END
+
+--IF NOT EXISTS(SELECT sc.*
+--FROM sys.objects so inner join sys.columns sc
+--on so.object_id=sc.object_id
+--WHERE so.name='EncounterTemplate' AND so.type='U' AND sc.name='VendorID')
+--BEGIN
+--	ALTER TABLE EncounterTemplate ADD VendorID VARCHAR(50), VendorImportID INT
+--END
+
+
+--INSERT INTO EncounterTemplate(Name, Description, PracticeID, EncounterFormTypeID, ProcedureSortByCode,
+--							  DiagnosisSortByCode, UseServiceLocationAddress, VendorID, VendorImportID)
+--SELECT EET.[Name]
+--      ,EET.[Description]
+--      ,CASE WHEN PracticeID=113 THEN 114 ELSE 116 END PracticeID
+--      ,EET.[EncounterFormTypeID]
+--      ,EET.[ProcedureSortByCode]
+--      ,EET.[DiagnosisSortByCode]
+--      ,EET.[UseServiceLocationAddress]
+--      ,EET.EncounterTemplateID,
+--      @VendorImportID
+--FROM EncounterTemplate EET
+--WHERE PracticeID IN (113,115)
+--
+--
+--INSERT INTO Department(PracticeID, Name, Description, VendorID, VendorImportID)
+--SELECT CASE WHEN PracticeID=113 THEN 114 WHEN PracticeID=115 THEN 116 END PracticeID,
+--Name, Description, 
+--CAST(PracticeID AS VARCHAR(10))+'.'+CAST(DepartmentID AS VARCHAR(10)) VendorID, 
+--@VendorImportID VendorImportID
+--FROM Department
+--WHERE PracticeID IN (113,115)
+--
+--INSERT INTO ServiceLocation(PracticeID, Name, AddressLine1, AddressLine2, City, State, Country, 
+--ZipCode, PlaceOfServiceCode, BillingName, Phone, PhoneExt, FaxPhone, FaxPhoneExt, 
+--HCFABox32FacilityID, CLIANumber, VendorID, VendorImportID)
+--SELECT CASE WHEN PracticeID=113 THEN 114 WHEN PracticeID=115 THEN 116 END PracticeID, 
+--Name, AddressLine1, AddressLine2, City, State, Country, 
+--ZipCode, PlaceOfServiceCode, BillingName, Phone, PhoneExt, FaxPhone, FaxPhoneExt, 
+--HCFABox32FacilityID, CLIANumber,
+--CAST(PracticeID AS VARCHAR(10))+'.'+CAST(ServiceLocationID AS VARCHAR(10)) VendorID, 
+--@VendorImportID VendorImportID
+--FROM ServiceLocation
+--WHERE PracticeID IN (113,115)
+--
+--INSERT INTO PracticeResource(PracticeResourceTypeID, PracticeID, ResourceName, VendorID, VendorImportID)
+--SELECT PracticeResourceTypeID, CASE WHEN PracticeID=113 THEN 114 WHEN PracticeID=115 THEN 116 END PracticeID,
+--ResourceName, CAST(PracticeID AS VARCHAR(10))+'.'+CAST(PracticeResourceID AS VARCHAR(10)) VendorID,
+--@VendorImportID VendorImportID
+--FROM PracticeResource
+--WHERE PracticeID IN (113,115)
+--
+--INSERT INTO Doctor(PracticeID, Prefix, FirstName, MiddleName, 
+--LastName, Suffix, SSN, AddressLine1, AddressLine2, City, State, Country, ZipCode, HomePhone, 
+--HomePhoneExt, WorkPhone, WorkPhoneExt, PagerPhone, PagerPhoneExt, MobilePhone, MobilePhoneExt, DOB, 
+--EmailAddress, Notes, ActiveDoctor, Degree, DefaultEncounterTemplateID, TaxonomyCode, 
+--VendorID, VendorImportID, DepartmentID, FaxNumber, FaxNumberExt, [External])
+--SELECT CASE WHEN D.PracticeID=113 THEN 114 WHEN D.PracticeID=115 THEN 116 END PracticeID, Prefix, FirstName, MiddleName, 
+--LastName, Suffix, SSN, AddressLine1, AddressLine2, City, State, Country, ZipCode, HomePhone, 
+--HomePhoneExt, WorkPhone, WorkPhoneExt, PagerPhone, PagerPhoneExt, MobilePhone, MobilePhoneExt, DOB, 
+--EmailAddress, Notes, ActiveDoctor, Degree, DefaultEncounterTemplateID, TaxonomyCode, 
+--CAST(D.PracticeID AS VARCHAR(10))+'.'+CAST(DoctorID AS VARCHAR(10)) VendorID, 
+--@VendorImportID VendorImportID, Dp.DepartmentID, FaxNumber, FaxNumberExt, [External]
+--FROM Doctor D LEFT JOIN Department Dp
+--ON CAST(D.PracticeID AS VARCHAR(10))+'.'+CAST(D.DepartmentID AS VARCHAR(10))=Dp.VendorID AND Dp.VendorImportID=@VendorImportID
+--WHERE D.PracticeID IN (113,115)
+--
+--UPDATE D SET DefaultEncounterTemplateID=ET.EncounterTemplateID
+--FROM Doctor D INNER JOIN EncounterTemplate ET
+--ON D.PracticeID=ET.PracticeID AND D.DefaultEncounterTemplateID=ET.VendorID AND ET.VendorImportID=45
+--WHERE D.PracticeID IN (114,116)
+--
+--INSERT INTO ProviderNumber(DoctorID, ProviderNumberTypeID, InsuranceCompanyPlanID, LocationID, ProviderNumber, AttachConditionsTypeID)
+--SELECT D.DoctorID, ProviderNumberTypeID, InsuranceCompanyPlanID, SL.ServiceLocationID, ProviderNumber, AttachConditionsTypeID
+--FROM ProviderNumber PN INNER JOIN Doctor OD
+--ON PN.DoctorID=OD.DoctorID
+--INNER JOIN Doctor D
+--ON CAST(OD.PracticeID AS VARCHAR(10))+'.'+CAST(OD.DoctorID AS VARCHAR(10))=D.VendorID AND D.VendorImportID=@VendorImportID
+--LEFT JOIN ServiceLocation OSL
+--ON PN.LocationID=OSL.ServiceLocationID
+--LEFT JOIN ServiceLocation SL
+--ON CAST(OSL.PracticeID AS VARCHAR(10))+'.'+CAST(OSL.ServiceLocationID AS VARCHAR(10))=SL.VendorID AND SL.VendorImportID=@VendorImportID
+--WHERE OD.PracticeID IN (113,115)
+
+--INSERT INTO AppointmentReason(PracticeID, Name, DefaultDurationMinutes, DefaultColorCode, Description, VendorID, VendorImportID)
+--SELECT CASE WHEN PracticeID=113 THEN 114 WHEN PracticeID=115 THEN 116 END PracticeID,
+--Name, DefaultDurationMinutes, DefaultColorCode, Description,
+--CAST(PracticeID AS VARCHAR(10))+'.'+CAST(AppointmentReasonID AS VARCHAR(10)) VendorID, 
+--@VendorImportID VendorImportID
+--FROM AppointmentReason
+--WHERE PracticeID IN (113,115)
+--
+--INSERT INTO AppointmentReasonDefaultResource(AppointmentReasonID, AppointmentResourceTypeID, ResourceID)
+--SELECT ARD.AppointmentReasonID, ARD.AppointmentResourceTypeID, D.DoctorID ResourceID
+--FROM AppointmentReason AR INNER JOIN AppointmentReasonDefaultResource ARD
+--ON AR.AppointmentReasonID=ARD.AppointmentReasonID
+--INNER JOIN Doctor OD
+--ON ARD.ResourceID=OD.DoctorID
+--INNER JOIN Doctor D
+--ON CAST(OD.PracticeID AS VARCHAR(10))+'.'+CAST(ARD.ResourceID AS VARCHAR(10))=D.VendorID AND D.VendorImportID=@VendorImportID
+--WHERE AR.PracticeID IN (113,115) AND ARD.AppointmentResourceTypeID=1
+--
+--INSERT INTO AppointmentReasonDefaultResource(AppointmentReasonID, AppointmentResourceTypeID, ResourceID)
+--SELECT ARD.AppointmentReasonID, ARD.AppointmentResourceTypeID, PR.PracticeResourceID ResourceID
+--FROM AppointmentReason AR INNER JOIN AppointmentReasonDefaultResource ARD
+--ON AR.AppointmentReasonID=ARD.AppointmentReasonID
+--INNER JOIN PracticeResource OPR
+--ON ARD.ResourceID=OPR.PracticeResourceID
+--INNER JOIN PracticeResource PR
+--ON CAST(OPR.PracticeID AS VARCHAR(10))+'.'+CAST(ARD.ResourceID AS VARCHAR(10))=PR.VendorID AND PR.VendorImportID=@VendorImportID
+--WHERE AR.PracticeID IN (113,115) AND ARD.AppointmentResourceTypeID=2
+--
+--INSERT INTO Timeblock(PracticeID, StartDate, EndDate, TimeblockName, TimeblockDescription, TimeblockColor, Notes, AppointmentResourceTypeID, ResourceID, AllDay, IsRecurring, RecurrenceStartDate, RangeEndDate, RangeType, StartDKPracticeID, EndDKPracticeID, VendorID, VendorImportID)
+--SELECT CASE WHEN TB.PracticeID=113 THEN 114 WHEN TB.PracticeID=115 THEN 116 END PracticeID,
+--StartDate, EndDate, TimeblockName, TimeblockDescription, TimeblockColor, TB.Notes,
+--AppointmentResourceTypeID, D.DoctorID ResourceID, AllDay, IsRecurring, RecurrenceStartDate, RangeEndDate, RangeType, StartDKPracticeID, EndDKPracticeID, 
+--CAST(TB.PracticeID AS VARCHAR(10))+'.'+CAST(TimeblockID AS VARCHAR(10)) VendorID, @VendorImportID VendorImportID
+--FROM Timeblock TB INNER JOIN Doctor D
+--ON CAST(TB.PracticeID AS VARCHAR(10))+'.'+CAST(TB.ResourceID AS VARCHAR(10))=D.VendorID AND D.VendorImportID=@VendorImportID
+--WHERE TB.PracticeID IN (113,115) AND TB.AppointmentResourceTypeID=1
+--
+--INSERT INTO Timeblock(PracticeID, StartDate, EndDate, TimeblockName, TimeblockDescription, TimeblockColor, Notes, AppointmentResourceTypeID, ResourceID, AllDay, IsRecurring, RecurrenceStartDate, RangeEndDate, RangeType, StartDKPracticeID, EndDKPracticeID, VendorID, VendorImportID, ModifiedUserID)
+--SELECT CASE WHEN TB.PracticeID=113 THEN 114 WHEN TB.PracticeID=115 THEN 116 END PracticeID,
+--StartDate, EndDate, TimeblockName, TimeblockDescription, TimeblockColor, Notes,
+--AppointmentResourceTypeID, PR.PracticeResourceID ResourceID, AllDay, IsRecurring, RecurrenceStartDate, RangeEndDate, RangeType, StartDKPracticeID, EndDKPracticeID, 
+--CAST(TB.PracticeID AS VARCHAR(10))+'.'+CAST(TimeblockID AS VARCHAR(10)) VendorID, @VendorImportID VendorImportID, TB.ModifiedUserID
+--FROM Timeblock TB INNER JOIN PracticeResource PR
+--ON CAST(TB.PracticeID AS VARCHAR(10))+'.'+CAST(TB.ResourceID AS VARCHAR(10))=PR.VendorID AND PR.VendorImportID=@VendorImportID
+--WHERE TB.PracticeID IN (113,115) AND TB.AppointmentResourceTypeID=2
+--
+--INSERT INTO TimeblockRecurrence(TimeblockID, Type, WeeklyNumWeeks, WeeklyOnSunday, WeeklyOnMonday, WeeklyOnTuesday, WeeklyOnWednesday, WeeklyOnThursday, WeeklyOnFriday, WeeklyOnSaturday, DailyType, DailyNumDays, MonthlyType, MonthlyNumMonths, MonthlyDayOfMonth, MonthlyWeekTypeOfMonth, MonthlyTypeOfDay, YearlyType, YearlyDayTypeOfMonth, YearlyTypeOfDay, YearlyDayOfMonth, YearlyMonth, RangeType, RangeEndOccurrences, RangeEndDate, StartDate, ModifiedUserID)
+--SELECT TB.TimeblockID, Type, WeeklyNumWeeks, WeeklyOnSunday, WeeklyOnMonday, WeeklyOnTuesday, WeeklyOnWednesday, WeeklyOnThursday, WeeklyOnFriday, WeeklyOnSaturday, DailyType, DailyNumDays, MonthlyType, MonthlyNumMonths, MonthlyDayOfMonth, MonthlyWeekTypeOfMonth, MonthlyTypeOfDay, YearlyType, YearlyDayTypeOfMonth, YearlyTypeOfDay, YearlyDayOfMonth, YearlyMonth, TBR.RangeType, RangeEndOccurrences, TBR.RangeEndDate, TBR.StartDate, TBR.ModifiedUserID
+--FROM Timeblock OTB INNER JOIN TimeblockRecurrence TBR
+--ON OTB.TimeblockID=TBR.TimeblockID
+--INNER JOIN Timeblock TB
+--ON CAST(OTB.PracticeID AS VARCHAR(10))+'.'+CAST(OTB.TimeblockID AS VARCHAR(10))=TB.VendorID AND TB.VendorImportID=@VendorImportID 
+--WHERE OTB.PracticeID IN (113,115)
+--
+--INSERT INTO TimeblockRecurrenceException(TimeblockID, ExceptionDate, ModifiedUserID)
+--SELECT TB.TimeblockID, ExceptionDate, TBRE.ModifiedUserID
+--FROM Timeblock OTB INNER JOIN TimeblockRecurrenceException TBRE
+--ON OTB.TimeblockID=TBRE.TimeblockID
+--INNER JOIN Timeblock TB
+--ON CAST(OTB.PracticeID AS VARCHAR(10))+'.'+CAST(OTB.TimeblockID AS VARCHAR(10))=TB.VendorID AND TB.VendorImportID=@VendorImportID 
+--WHERE OTB.PracticeID IN (113,115)
+
+--INSERT INTO Patient (PracticeID, ReferringPhysicianID, Prefix, FirstName, MiddleName, 
+--LastName, Suffix, AddressLine1, AddressLine2, City, State, Country, ZipCode, Gender, MaritalStatus, 
+--HomePhone, HomePhoneExt, WorkPhone, WorkPhoneExt, DOB, SSN, EmailAddress, 
+--ResponsibleDifferentThanPatient, ResponsiblePrefix, ResponsibleFirstName, ResponsibleMiddleName, 
+--ResponsibleLastName, ResponsibleSuffix, ResponsibleRelationshipToPatient, ResponsibleAddressLine1, 
+--ResponsibleAddressLine2, ResponsibleCity, ResponsibleState, ResponsibleCountry, ResponsibleZipCode, 
+--EmploymentStatus, InsuranceProgramCode, ADS_PatientID, PatientReferralSourceID, PrimaryProviderID, 
+--VendorID, VendorImportID, DefaultServiceLocationID, EmployerID, MedicalRecordNumber, 
+--MobilePhone, MobilePhoneExt, PrimaryCarePhysicianID)
+--SELECT CASE WHEN P.PracticeID=113 THEN 114 WHEN P.PracticeID=115 THEN 116 END PracticeID, 
+--RP.DoctorID ReferringPhysicianID, P.Prefix, P.FirstName, P.MiddleName, 
+--P.LastName, P.Suffix, P.AddressLine1, P.AddressLine2, P.City, P.State, P.Country, P.ZipCode, Gender, MaritalStatus, 
+--P.HomePhone, P.HomePhoneExt, P.WorkPhone, P.WorkPhoneExt, P.DOB, P.SSN, P.EmailAddress, 
+--ResponsibleDifferentThanPatient, ResponsiblePrefix, ResponsibleFirstName, ResponsibleMiddleName, 
+--ResponsibleLastName, ResponsibleSuffix, ResponsibleRelationshipToPatient, ResponsibleAddressLine1, 
+--ResponsibleAddressLine2, ResponsibleCity, ResponsibleState, ResponsibleCountry, ResponsibleZipCode, 
+--EmploymentStatus, InsuranceProgramCode, ADS_PatientID, PatientReferralSourceID, PrimaryProviderID, 
+--CAST(P.PracticeID AS VARCHAR(10))+'.'+CAST(P.PatientID AS VARCHAR(10)) VendorID, @VendorImportID VendorImportID, 
+--SL.ServiceLocationID DefaultServiceLocationID, EmployerID, MedicalRecordNumber, 
+--P.MobilePhone, P.MobilePhoneExt, D.DoctorID PrimaryCarePhysicianID
+--FROM Patient P LEFT JOIN ServiceLocation SL
+--ON CAST(P.PracticeID AS VARCHAR(10))+'.'+CAST(P.DefaultServiceLocationID AS VARCHAR(10))=SL.VendorID AND SL.VendorImportID=@VendorImportID
+--LEFT JOIN Doctor D
+--ON CAST(P.PracticeID AS VARCHAR(10))+'.'+CAST(P.PrimaryCarePhysicianID AS VARCHAR(10))=D.VendorID AND D.VendorImportID=@VendorImportID
+--LEFT JOIN Doctor RP
+--ON CAST(P.PracticeID AS VARCHAR(10))+'.'+CAST(P.PrimaryCarePhysicianID AS VARCHAR(10))=RP.VendorID AND RP.VendorImportID=@VendorImportID
+--WHERE P.PracticeID IN (113,115)
+
+--INSERT INTO PatientJournalNote(PatientID, UserName, SoftwareApplicationID, Hidden, NoteMessage, AccountStatus)
+--SELECT P.PatientID, UserName, SoftwareApplicationID, Hidden, NoteMessage, AccountStatus
+--FROM Patient OP INNER JOIN PatientJournalNote PJN
+--ON OP.PatientID=PJN.PatientID
+--INNER JOIN Patient P
+--ON CAST(OP.PracticeID AS VARCHAR(10))+'.'+CAST(OP.PatientID AS VARCHAR(10))=P.VendorID AND P.VendorImportID=@VendorImportID
+--WHERE OP.PracticeID IN (113,115)
+
+--INSERT INTO PatientCase(PatientID, Name, Active, PayerScenarioID, ReferringPhysicianID, 
+--EmploymentRelatedFlag, AutoAccidentRelatedFlag, OtherAccidentRelatedFlag, AbuseRelatedFlag, 
+--AutoAccidentRelatedState, Notes, ShowExpiredInsurancePolicies, 
+--PracticeID, 
+--VendorID, VendorImportID, CaseNumber, WorkersCompContactInfoID, PregnancyRelatedFlag)
+--SELECT P.PatientID, Name, PC.Active, PayerScenarioID, P.ReferringPhysicianID, 
+--EmploymentRelatedFlag, AutoAccidentRelatedFlag, OtherAccidentRelatedFlag, AbuseRelatedFlag, 
+--AutoAccidentRelatedState, PC.Notes, ShowExpiredInsurancePolicies, 
+--CASE WHEN PC.PracticeID=113 THEN 114 WHEN PC.PracticeID=115 THEN 116 END PracticeID, 
+--CAST(PC.PracticeID AS VARCHAR(10))+'.'+CAST(PC.PatientCaseID AS VARCHAR(10)) VendorID, 
+--@VendorImportID VendorImportID, CaseNumber, WorkersCompContactInfoID, PregnancyRelatedFlag
+--FROM PatientCase PC INNER JOIN Patient P
+--ON CAST(PC.PracticeID AS VARCHAR(10))+'.'+CAST(PC.PatientID AS VARCHAR(10))=P.VendorID AND P.VendorImportID=@VendorImportID
+--WHERE PC.PracticeID IN (113,115)
+
+--INSERT INTO InsurancePolicy(PatientCaseID, InsuranceCompanyPlanID, Precedence, 
+--PolicyNumber, GroupNumber, PolicyStartDate, PolicyEndDate, CardOnFile, PatientRelationshipToInsured, 
+--HolderPrefix, HolderFirstName, HolderMiddleName, HolderLastName, HolderSuffix, HolderDOB, HolderSSN, 
+--HolderThroughEmployer, HolderEmployerName, PatientInsuranceStatusID, 
+--HolderGender, HolderAddressLine1, HolderAddressLine2, HolderCity, HolderState, HolderCountry, 
+--HolderZipCode, HolderPhone, HolderPhoneExt, DependentPolicyNumber, Notes, Phone, PhoneExt, Fax, 
+--FaxExt, Copay, Deductible, PatientInsuranceNumber, Active, PracticeID, AdjusterPrefix, 
+--AdjusterFirstName, AdjusterMiddleName, AdjusterLastName, AdjusterSuffix, VendorID, VendorImportID)
+--SELECT PC.PatientCaseID, InsuranceCompanyPlanID, Precedence, 
+--PolicyNumber, GroupNumber, PolicyStartDate, PolicyEndDate, CardOnFile, PatientRelationshipToInsured, 
+--HolderPrefix, HolderFirstName, HolderMiddleName, HolderLastName, HolderSuffix, HolderDOB, HolderSSN, 
+--HolderThroughEmployer, HolderEmployerName, PatientInsuranceStatusID, 
+--HolderGender, HolderAddressLine1, HolderAddressLine2, HolderCity, HolderState, HolderCountry, 
+--HolderZipCode, HolderPhone, HolderPhoneExt, DependentPolicyNumber, IP.Notes, Phone, PhoneExt, Fax, 
+--FaxExt, Copay, Deductible, PatientInsuranceNumber, IP.Active, 
+--CASE WHEN IP.PracticeID=113 THEN 114 WHEN IP.PracticeID=115 THEN 116 END PracticeID, AdjusterPrefix, 
+--AdjusterFirstName, AdjusterMiddleName, AdjusterLastName, AdjusterSuffix, 
+--CAST(IP.PracticeID AS VARCHAR(10))+'.'+CAST(IP.InsurancePolicyID AS VARCHAR(10)) VendorID, @VendorImportID VendorImportID
+--FROM InsurancePolicy IP INNER JOIN PatientCase PC
+--ON CAST(IP.PracticeID AS VARCHAR(10))+'.'+CAST(IP.PatientCaseID AS VARCHAR(10))=PC.VendorID AND PC.VendorImportID=@VendorImportID
+--WHERE IP.PracticeID IN (113,115)
+
+
+--INSERT INTO Contract(PracticeID, ContractName, Description, ContractType, EffectiveStartDate, EffectiveEndDate, PolicyValidator, NoResponseTriggerPaper, NoResponseTriggerElectronic, Notes, Capitated, VendorID, VendorImportID)
+--SELECT CASE WHEN PracticeID=113 THEN 114 WHEN PracticeID=115 THEN 116 END PracticeID, 
+--ContractName, Description, ContractType, EffectiveStartDate, EffectiveEndDate, PolicyValidator, 
+--NoResponseTriggerPaper, NoResponseTriggerElectronic, Notes, Capitated, 
+--CAST(PracticeID AS VARCHAR(10))+'.'+CAST(ContractID AS VARCHAR(10)) VendorID, @VendorImportID VendorImportID
+--FROM Contract
+--WHERE PracticeID IN (113,115)
+--
+--INSERT INTO ContractFeeSchedule(ContractID, Modifier, Gender, StandardFee, Allowable, 
+--ExpectedReimbursement, RVU, ProcedureCodeDictionaryID, DiagnosisCodeDictionaryID)
+--SELECT C.ContractID, Modifier, Gender, StandardFee, Allowable, 
+--ExpectedReimbursement, RVU, ProcedureCodeDictionaryID, DiagnosisCodeDictionaryID
+--FROM Contract OC INNER JOIN ContractFeeSchedule CFS
+--ON OC.ContractID=CFS.ContractID
+--INNER JOIN Contract C
+--ON CAST(OC.PracticeID AS VARCHAR(10))+'.'+CAST(OC.ContractID AS VARCHAR(10))=C.VendorID AND C.VendorImportID=@VendorImportID
+--WHERE OC.PracticeID IN (113,115)
+--
+--INSERT INTO ContractToServiceLocation(ContractID, ServiceLocationID)
+--SELECT C.ContractID, SL.ServiceLocationID
+--FROM Contract OC INNER JOIN ContractToServiceLocation CTSL
+--ON OC.ContractID=CTSL.ContractID
+--INNER JOIN Contract C
+--ON CAST(OC.PracticeID AS VARCHAR(10))+'.'+CAST(OC.ContractID AS VARCHAR(10))=C.VendorID AND C.VendorImportID=@VendorImportID
+--INNER JOIN ServiceLocation SL
+--ON CAST(OC.PracticeID AS VARCHAR(10))+'.'+CAST(CTSL.ServiceLocationID AS VARCHAR(10))=SL.VendorID AND SL.VendorImportID=@VendorImportID
+--WHERE OC.PracticeID IN (113,115)
+
+--COMMIT TRAN
+--ROLLBACK

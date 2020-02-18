@@ -1,0 +1,7 @@
+--
+--update  Customer
+--SET Metrics = 1
+--WHERE Metrics IS NULL
+--
+--alter table customer alter column Metrics bit NOT NULL
+--

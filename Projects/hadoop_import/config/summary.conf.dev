@@ -1,0 +1,52 @@
+[GLOBAL]
+report_recipients = squaddata@kareo.com
+
+[Stage:Import Customer DB]
+report_distinct_customers = true
+distinct_customers_column = partitioncustomerid
+distinct_customers_table = doctor
+db_type = CUSTOMER
+tables =
+    doctor
+    claimtransaction
+    paymentclaim
+
+[Stage:Import Shared DB]
+report_distinct_customers = false
+db_type = SHARED
+tables =
+    customer
+    clearinghousepayerslist
+    clearinghouse
+
+[Stage:ETL Adjustments]
+report_distinct_customers = true
+distinct_customers_column = partitioncustomerid
+distinct_customers_table = adjustments_all
+db_name = etl
+tables =
+    adjustments_all
+
+[Stage:ETL AR]
+report_distinct_customers = true
+distinct_customers_column = partitioncustomerid
+distinct_customers_table = arsummary_all
+db_name = etl
+tables =
+    arsummary_all
+
+[Stage:ETL Payment Claim EOB]
+report_distinct_customers = true
+distinct_customers_column = partitioncustomerid
+distinct_customers_table = paymentclaimeob_all
+db_name = etl
+tables =
+    paymentclaimeob_all
+
+[Stage:ETL Charges]
+report_distinct_customers = true
+distinct_customers_column = partitioncustomerid
+distinct_customers_table = chargesdetail_all
+db_name = etl
+tables =
+    chargesdetail_all

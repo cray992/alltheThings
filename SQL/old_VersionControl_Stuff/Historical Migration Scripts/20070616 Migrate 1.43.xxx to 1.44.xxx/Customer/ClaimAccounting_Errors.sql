@@ -1,0 +1,72 @@
+
+------- ==========deployed  on 5/11
+
+
+--IF  EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[ClaimAccounting_Errors]') AND type in (N'U'))
+--DROP TABLE [dbo].[ClaimAccounting_Errors]
+--GO
+--
+--create table ClaimAccounting_Errors 
+--		(	PracticeID INT, ClaimID INT, ClaimTransactionTypeCode char(3), 
+--			CONSTRAINT CI_ClaimAccounting_Errors_PracticeIDClaimID Primary KEY CLUSTERED( PracticeID, ClaimID) 
+--		)
+--
+--
+--
+--
+--		-- Migration
+--		CREATE TABLE #LastCTIDError(PracticeID INT, ClaimID INT, ClaimTransactionTypeCode CHAR(3), MaxID INT, MaxPostingDate DATETIME)
+--		CREATE TABLE #Errors (PracticeID INT, ClaimID INT, ClaimTransactionTypeCode char(4) )
+--		CREATE TABLE #NoResponse (ClaimID INT, ClaimTransactionTypeCode char(4), BatchType char(1), PostingDate datetime, InsuranceCompanyPlanID INT )
+--
+--
+--				INSERT INTO #LastCTIDError(PracticeID, ClaimID, ClaimTransactionTypeCode, MaxID, MaxPostingDate)
+--				SELECT C.PracticeID, C.ClaimID, 'ERR', MAX(CT.ClaimTransactionID) MaxID, MAX(CT.PostingDate) MaxPostingDate
+--				FROM Claim C INNER JOIN ClaimTransaction CT
+--				ON C.PracticeID=CT.PracticeID AND C.ClaimID=CT.ClaimID
+--				WHERE C.ClaimStatusCode <> 'C' 
+--					AND ( CT.ClaimTransactionTypeCode IN( 'RJT', 'DEN' )
+--						)
+--				GROUP BY C.PracticeID, C.ClaimID
+--
+--
+--				INSERT INTO #LastCTIDError(PracticeID, ClaimID, ClaimTransactionTypeCode, MaxID, MaxPostingDate)
+--				select ct.PracticeID, ct.ClaimID, 'RJT', ct.ClaimTransactionID, ct.PostingDate
+--				FROM (
+--						SELECT C.PracticeID, C.ClaimID, MAX(CT.ClaimTransactionID) MaxID
+--						FROM Claim C INNER JOIN ClaimTransaction CT
+--						ON C.PracticeID=CT.PracticeID AND C.ClaimID=CT.ClaimID
+--						WHERE C.ClaimStatusCode <> 'C' 
+--							AND CT.ClaimTransactionTypeCode IN( 'EDI' )	
+--						GROUP BY C.PracticeID, C.ClaimID
+--						) as maxEDI
+--					INNER JOIN ClaimTransaction ct ON ct.PracticeID = maxEDI.PracticeID AND ct.ClaimID = maxEDI.ClaimID  AND ct.ClaimTransactionID = maxEDI.MaxID
+--						AND CT.Notes Like '%Rejected%'	
+--					LEFT JOIN #LastCTIDError e ON e.PracticeID = ct.PracticeID AND e.ClaimID = ct.ClaimID
+--				WHERE e.ClaimTransactionTypeCode IS NULL
+--
+--
+--
+--				INSERT #Errors (PracticeID, ClaimID, ClaimTransactionTypeCode)
+--				SELECT LCTE.PracticeID, LCTE.ClaimID, LCTE.ClaimTransactionTypeCode
+--				FROM #LastCTIDError LCTE 
+--					LEFT JOIN ClaimTransaction CT ON LCTE.PracticeID=CT.PracticeID AND LCTE.ClaimID=CT.ClaimID 
+--						AND CT.ClaimTransactionTypeCode IN ('RES', 'ADJ', 'PAY', 'BLL', 'ASN', 'END', 'XXX', 'RAS')
+--						AND ( LCTE.MaxPostingDate < ct.PostingDate OR ( LCTE.MaxPostingDate = ct.PostingDate AND LCTE.MaxID<CT.ClaimTransactionID ))			
+--				WHERE ct.ClaimID is null
+--				GROUP BY LCTE.PracticeID, LCTE.ClaimID, LCTE.ClaimTransactionTypeCode
+--				
+--				update e
+--				SET ClaimTransactionTypeCode = ct.ClaimTransactionTypeCode
+--				FROM #Errors e
+--					INNER JOIN #LastCTIDError l on l.PracticeID = e.PracticeID AND l.ClaimID = e.ClaimID
+--					INNER JOIN ClaimTransaction ct ON ct.PracticeID = l.PracticeID AND ct.ClaimID = l.ClaimID AND l.MaxID = ct.ClaimTransactionID
+--				WHERE e.ClaimTransactionTypeCode = 'ERR'
+--
+--
+--				INSERT ClaimAccounting_Errors( PracticeID, ClaimID, ClaimTransactionTypeCode )
+--				SELECT PracticeID, ClaimID, max(ClaimTransactionTypeCode)
+--				FROM #Errors
+--				GROUP BY PracticeID, ClaimID
+--
+--		drop table #LastCTIDError, #Errors, #NoResponse

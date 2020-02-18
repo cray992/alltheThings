@@ -1,0 +1,124 @@
+[GLOBAL]
+environment=DEV
+is_debug_enabled=false
+failure_report_recipients = squaddata@kareo.com
+report_failure_limit = 1000
+
+[DEBUG]
+; List of customer IDs to process in debug mode
+customer_ids=
+
+[SMTP]
+smtp_server=sna-smtp.kareoprod.ent
+
+[ETL]
+mapreduce_reducers=1
+mapreduce_memory=1024
+spark_executors=1
+spark_executor_memory=1g
+spark_driver_memory=1g
+
+[INGESTION]
+; Configuration related to both full and incremental ingestion from MS SQL into Hive
+num_workers = 5
+batch_size = 10
+num_buckets = 20
+max_retries = 4
+
+[SPARK]
+; deploy_mode: Sets Spark job deployment mode
+; Options: client or cluster
+; In cluster mode, the spark driver runs inside a container in the spark cluster
+; In client mode, the spark driver runs in local process in the client machine.
+; This is particularly useful in cases that the spark driver does not perform any processing such as computing totals
+; from partial results computed by workers. For example ingestion jobs that only involve read/write operations.
+deploy_mode = cluster
+
+; spark_major_version: It switches Spark SDK (PySpark) version for any job that is sent to the Spark cluster
+; Value options: 1 or 2
+; Both version 1 and 2 are available in our HortonWorks Data Platform (HDP)
+spark_major_version=2
+
+[DB:MSSQL]
+; Default DB Connection settings for MS SQL databases
+; Intentionally there is no default server (hostname) and port
+; db_domain is an environment specific common suffix, used to obtain db server hostname
+db_server = DVWIN-DB12.kareo.ent
+db_user = kareo0\d-integrationtest-Us
+db_password= s?tgL3wTqrph
+db_domain = kareo.ent
+db_port = 4400
+max_retries = 30
+
+[DB:HIVE:ETL]
+; Settings for DB storing results of ETLs
+db_name = etl
+
+[DB:HIVE]
+; Default DB Connection settings for MS SQL databases
+; db_metastore
+db_server = sna-dvx-hdp-01.kareoprod.ent
+db_metastore = sna-dvx-hdp-01.kareoprod.ent
+db_port   = 10500
+db_user   = d-integrationtest-Us
+db_password =
+
+[DB:MSSQL:SUBSCRIPTIONS]
+; Settings for DB containing customer and product subscription data
+db_name = superbill_shared
+
+[DB:MSSQL:APPLICATION_METADATA]
+; Settings for DB containing metadata and config for hadoop-import and qlik-import
+db_name = ReportingLog
+
+[DB:MSSQL:CHANGE_TRACKING]
+; Settings for DB containing metadata and sproc for enabling Change Tracking
+db_name = ReportingLog
+
+; TODO: Remove these configs when deprecating the old DbManager
+; All these configs are used by the old DbManager ot be deprecated
+
+[HIVE]
+hive_buckets = 20
+
+[DB_COMMON]
+mssql_user = kareo0\d-integrationtest-Us
+mssql_passwd = s?tgL3wTqrph
+mssql_db_server_domain=kareo.ent
+hive_server = sna-dvx-hdp-01.kareoprod.ent
+hive_metastore = sna-dvx-hdp-01.kareoprod.ent
+hive_port   = 10000
+hive_user   = d-integrationtest-Us
+hive_passwd =
+
+[DBCONN:mssql:customer]
+server = DVWIN-DB12.kareo.ent
+port = 4400
+db_name = master
+
+[DBCONN:mssql:shared]
+server = DVWIN-DB12.kareo.ent
+port = 4400
+db_name = superbill_shared
+
+[DBCONN:mssql:salesforce]
+server = DVWIN-DB12.kareo.ent
+port = 4400
+db_name = SFDC_Sesame
+
+[DBCONN:mssql:enterprise_reports]
+server = DVWIN-DB12.kareo.ent
+port = 4400
+db_name = ReportingLog
+
+[DBCONN:hive:hive_global]
+db_name = customer
+
+[DBCONN:hive:hive_etl]
+db_name = etl
+
+[DBCONN:hive:hive_shared]
+db_name = shared
+
+[DBCONN:hive:hive_salesforce]
+db_name = salesforce

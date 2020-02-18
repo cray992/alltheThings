@@ -1,0 +1,6 @@
+--Restore from Backup—
+
+1. Request backup from Jira
+2. Restore in DB13
+3. Add Server \\prod-sqlbackups.   Prod: las-san-sqlbackups
+4. Find DB server name in support tools

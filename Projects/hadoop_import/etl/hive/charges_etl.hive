@@ -1,0 +1,38 @@
+DROP TABLE IF EXISTS ChargesDetailData;
+
+CREATE TABLE IF NOT EXISTS ChargesDetailData AS
+    SELECT
+        ca.partitioncustomerid as CustomerId,
+        ca.ClaimID as ClaimID,
+        ca.Amount as Amount,
+        ca.PostingDate as PostingDate,
+        ca.claimtransactionid as ClaimTransactionID,
+        ep.ServiceUnitCount as ServiceUnitCount,
+        ep.ServiceChargeAmount as ServiceChargeAmount,
+        ep.encounterprocedureid as EncounterProcedureID,
+        ep.encounterid as EncounterID
+    FROM
+        ${hive_global}.ClaimAccounting${staging_suffix} ca
+        JOIN ${hive_global}.EncounterProcedure${staging_suffix} ep ON ep.PracticeID = ca.PracticeID AND ep.EncounterProcedureID = ca.EncounterProcedureID AND ep.partitioncustomerid = ca.partitioncustomerid
+    WHERE
+        ca.PostingDate < CURRENT_TIMESTAMP
+        AND ca.ClaimTransactionTypeCode = 'CST';
+
+ALTER TABLE ${hive_etl}.ChargesDetail${etl_suffix} DROP PARTITION (partitioncustomerid > 0);
+
+INSERT OVERWRITE TABLE ${hive_etl}.ChargesDetail${etl_suffix} PARTITION(partitionCustomerId)
+  SELECT
+    r.customerid,
+    r.claimid,
+    r.serviceunitcount,
+    r.servicechargeamount,
+    r.amount,
+    r.postingdate,
+    r.claimtransactionid,
+    r.encounterprocedureid,
+    r.encounterid,
+    r.customerid
+  FROM ChargesDetailData r
+  DISTRIBUTE BY r.customerId;
+
+DROP TABLE IF EXISTS ChargesDetailData;

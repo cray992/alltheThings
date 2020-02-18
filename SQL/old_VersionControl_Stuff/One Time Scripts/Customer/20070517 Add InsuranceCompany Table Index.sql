@@ -1,0 +1,2 @@
+CREATE INDEX IX_InsuranceCompany_InsuranceCompanyID 
+ON InsuranceCompany (InsuranceCompanyID)

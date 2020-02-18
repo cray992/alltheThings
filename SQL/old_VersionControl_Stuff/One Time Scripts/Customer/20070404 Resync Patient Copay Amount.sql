@@ -1,0 +1,17 @@
+--Select EncounterProcedureID, SUM(Amount) amount
+--INTO #PRC
+--FROM ClaimTransaction ct
+--	INNER JOIN Claim c ON c.ClaimID = ct.ClaimID AND c.PracticeID = ct.PRacticeID
+--WHERE ClaimTransactionTypeCode = 'PRC'
+--GROUP BY EncounterProcedureID
+--
+--alter table EncounterProcedure disable trigger all
+--Update ep
+--SET patientResp = amount
+--from EncounterProcedure	ep
+--	INNER JOIN #PRC prc ON ep.EncounterProcedureID = prc.EncounterProcedureID
+--WHERE amount <> ISNULL(patientResp, 0)
+--alter table EncounterProcedure enable trigger all
+--
+--
+--drop table  #PRC

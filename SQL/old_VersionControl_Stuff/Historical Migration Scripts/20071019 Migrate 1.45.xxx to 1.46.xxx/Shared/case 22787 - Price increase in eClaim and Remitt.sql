@@ -1,0 +1,25 @@
+-------- DEPLOYED ---------
+--
+----------- Electronic Claims
+--update 	KareoProductRule
+--SET KareoProductRuleDef.modify('
+--  replace value of (/kareoproductdef/productdef/lineitems/KareoProductLineItem/@price)[2]
+--  with     "0.25"
+--')
+--where( EffectiveStartDate <= '10/1/07' OR EffectiveStartDate IS NULL )
+--		AND ( EffectiveEndDate >= '10/1/07' OR EffectiveEndDate IS NULL )
+--		AND KareoProductRuleDef.exist('/kareoproductdef/productdef/lineitems/KareoProductLineItem[@value = "5"]') = 1
+--		AND EditionTypeID = 3
+--
+--
+-------- Electronic Remittance
+--update 	KareoProductRule
+--SET KareoProductRuleDef.modify('
+--  replace value of (/kareoproductdef/productdef/lineitems/KareoProductLineItem/@price)[2]
+--  with     "0.25"
+--')
+--where( EffectiveStartDate <= '10/1/07' OR EffectiveStartDate IS NULL )
+--		AND ( EffectiveEndDate >= '10/1/07' OR EffectiveEndDate IS NULL )
+--		AND KareoProductRuleDef.exist('/kareoproductdef/productdef/lineitems/KareoProductLineItem[@value = "6"]') = 1
+--		AND EditionTypeID = 3
+--

@@ -1,0 +1,3 @@
+ALTER TABLE Claim WITH NOCHECK ADD CONSTRAINT FK_Claim_EncounterProcedureID 
+FOREIGN KEY (EncounterProcedureID) REFERENCES EncounterProcedure(EncounterProcedureID)
+ON DELETE NO ACTION ON UPDATE NO ACTION

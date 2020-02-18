@@ -1,0 +1,14 @@
+Customer : Promed Billing Associates.
+FogBugz Case ID : 14002
+
+Vendor Import ID : 1
+
+Current Date & Time : Sep 14 2006  5:12PM
+
+Rows Added in Patient Table ................................................ 3005
+Rows Updated in Patient Table for Referring Physicians ..................... 2331
+
+
+Vendor Import ID : 2
+480 Rows Added in ProcedureCodeDictionary Table.
+9004 Rows Added in ContractFeeSchdule Table.

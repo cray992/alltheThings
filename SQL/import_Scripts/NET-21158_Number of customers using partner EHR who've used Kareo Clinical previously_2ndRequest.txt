@@ -1,0 +1,8 @@
+USE superbill_shared
+GO
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED
+SELECT COUNT(DISTINCT c.CustomerID)AS PRACTICE_FUSION_Current_PM_Cust 
+FROM dbo.ProductDomain_ProductSubscription i
+	INNER JOIN customer c ON c.CustomerID = i.CustomerId
+WHERE c.PartnerID= 3 AND i.ProductId= 6 AND DeactivationDate IS NOT NULL AND 
+(c.Notes NOT LIKE '%demo%' and c.ContactEmail NOT LIKE '%@kareo%')
